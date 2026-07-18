@@ -1,0 +1,16 @@
+Python Introduction
+
+1. What is Python?
+Python is a high-level programming language created by Guido van Rossum in 1991.
+
+2. Features
+- Easy to learn
+- Object-oriented
+- Dynamic typing
+- Cross-platform
+- Rich libraries
+
+3. Applications
+- Web development (Django, Flask)
+- Data analysis (NumPy, Pandas)
+- AI/ML (TensorFlow, PyTorch)
