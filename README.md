@@ -10,6 +10,7 @@
 - MCP 协议支持
 - RAG 知识库检索
 - GitHub/Gitee API 集成
+- ETF 金融分析
 
 ## 技术栈
 
@@ -34,7 +35,7 @@ langChain_langGraph/
 │   ├── main.py               # 命令行入口
 │   ├── config.py             # 配置管理
 │   ├── github_tools.py       # GitHub MCP 工具
-│   ├── gitee_tools.py        # Gitee MCP 工具
+│   ├── gitee_tools.py       # Gitee MCP 工具
 │   ├── web/                  # Web UI
 │   ├── knowledge_base/       # 知识库文档
 │   ├── requirements.txt      # 依赖列表
@@ -44,21 +45,21 @@ langChain_langGraph/
 
 ## 快速开始
 
-### 安装依赖
+### 1. 安装依赖
 
 ```bash
 cd ai_agent
 pip install -r requirements.txt
 ```
 
-### 配置环境变量
+### 2. 配置环境变量
 
 ```bash
 cp .env.example .env
 # 编辑 .env 填入你的 API Key
 ```
 
-### 启动服务
+### 3. 启动服务
 
 **命令行模式：**
 ```bash
@@ -105,6 +106,42 @@ python api.py
 - 操作 Issue
 - 代码 Push
 
+## 扩展开发
+
+### 添加新工具
+
+在 `tools.py` 中添加：
+
+```python
+@tool
+def my_tool(param: str) -> str:
+    """工具描述"""
+    return result
+
+# 在 get_all_tools() 中注册
+```
+
+### 配置 MCP 服务
+
+编辑 `mcp_config.json` 配置外部 MCP 服务。
+
+## 环境变量说明
+
+```env
+# LLM 配置
+OPENAI_API_KEY=your_openai_api_key
+
+# SerpAPI (可选)
+SERPAPI_API_KEY=your_serpapi_key
+
+# Embedding 配置
+EMBEDDING_API_KEY=your_embedding_key
+EMBEDDING_MODEL_TYPE=zhipu
+
+# GitHub Token
+GITHUB_PERSONAL_ACCESS_TOKEN=your_github_token
+```
+
 ## 版本历史
 
 ### v1.0.0 (2026-07-18)
@@ -114,11 +151,11 @@ python api.py
 - MCP 工具集
 - GitHub/Gitee 集成
 
+## 许可证
+
+MIT License
+
 ## 仓库地址
 
 - GitHub: https://github.com/colbertlee/langChain_langGraph
 - Gitee: https://gitee.com/colbertlee/langChain_langGraph
-
-## 许可证
-
-MIT License
