@@ -13,9 +13,11 @@
 - FastAPI Web 服务 (api.py)
 - Web UI 界面 (web/index.html)
 - 命令行入口 (main.py)
+- 配置管理 (config.py)
 
 #### 特性
 - 多轮对话记忆 (SQLite 持久化)
 - 流式输出响应
 - 输入安全过滤
+- 输出敏感信息脱敏
 - Web UI + WebSocket 支持
