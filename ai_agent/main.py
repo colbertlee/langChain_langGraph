@@ -10,7 +10,8 @@ def main():
             if user_input.lower() in ["exit", "quit"]:
                 print("Goodbye!")
                 break
-            if not user_input: continue
+            if not user_input:
+                continue
             print("\nAI: ", end="", flush=True)
             for chunk in agent.run_stream(user_input):
                 print(chunk, end="", flush=True)
@@ -19,4 +20,5 @@ def main():
             print("\nInterrupted")
             break
 
-if __name__ == "__main__": main()
+if __name__ == "__main__":
+    main()
