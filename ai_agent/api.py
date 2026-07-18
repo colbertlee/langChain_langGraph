@@ -1,6 +1,8 @@
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
+from typing import Optional
 import uuid, os
 from agent import AIAgent
 
@@ -9,13 +11,21 @@ agent = None
 
 def get_agent():
     global agent
-    if agent is None: agent = AIAgent()
+    if agent is None:
+        agent = AIAgent()
     return agent
 
 @app.get("/")
-async def root(): return FileResponse("ai_agent/web/index.html")
+async def root():
+    return FileResponse("ai_agent/web/index.html")
+
 @app.get("/api/health")
-async def health(): return {"status": "ok"}
+async def health():
+    return {"status": "ok"}
+
+@app.post("/api/chat")
+async def chat(request: dict):
+    return {"message": get_agent().run(request.get("message", "")), "session_id": str(uuid.uuid4())}
 
 @app.websocket("/api/chat/stream")
 async def chat_stream(websocket: WebSocket):
@@ -23,10 +33,12 @@ async def chat_stream(websocket: WebSocket):
     try:
         while True:
             data = await websocket.receive_json()
+            session_id = data.get("session_id", str(uuid.uuid4()))
             for chunk in get_agent().run_stream(data.get("message", "")):
                 await websocket.send_json({"type": "chunk", "data": chunk})
             await websocket.send_json({"type": "complete"})
-    except: pass
+    except WebSocketDisconnect:
+        pass
 
 os.makedirs("ai_agent/web", exist_ok=True)
 app.mount("/web", StaticFiles(directory="ai_agent/web"), name="web")
