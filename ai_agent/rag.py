@@ -27,9 +27,12 @@ class RAGModule:
             try: documents.extend(TextLoader(path, encoding="utf-8").load())
             except: pass
         if not documents: return False
-        self.vectorstore = Chroma.from_documents(self.text_splitter.split_documents(documents), self.embeddings, collection_name="knowledge_base")
+        self.vectorstore = Chroma.from_documents(
+            self.text_splitter.split_documents(documents), self.embeddings, collection_name="knowledge_base")
         self.retriever = self.vectorstore.as_retriever(search_kwargs={"k": 3})
-        self.rag_chain = ({"context": self.retriever, "input": RunnablePassthrough()} | self.prompt | self.model | StrOutputParser())
+        self.rag_chain = ({"context": self.retriever, "input": RunnablePassthrough()}
+                         | self.prompt | self.model | StrOutputParser())
         return True
     
-    def query(self, question): return self.rag_chain.invoke(question) if self.rag_chain else "Load KB first"
+    def query(self, question):
+        return self.rag_chain.invoke(question) if self.rag_chain else "Load KB first"
