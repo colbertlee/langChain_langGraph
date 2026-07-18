@@ -1,0 +1,41 @@
+Python 入门指南
+
+1. Python 简介
+Python 是一种高级、通用、解释型编程语言。它由 Guido van Rossum 于 1991 年发布。Python 的设计理念强调代码可读性和简洁的语法。
+
+2. Python 的特点
+- 简单易学：Python 的语法简洁明了，适合初学者
+- 面向对象：支持面向对象编程
+- 动态类型：不需要声明变量类型
+- 跨平台：可以在 Windows、macOS、Linux 上运行
+- 丰富的库：有大量的第三方库可以使用
+
+3. Python 的应用领域
+- Web 开发：Django、Flask
+- 数据分析：NumPy、Pandas、Matplotlib
+- 人工智能：TensorFlow、PyTorch、Scikit-learn
+- 自动化脚本：系统管理、爬虫
+- 游戏开发：Pygame
+
+4. 基础语法
+- 打印输出：print("Hello, World!")
+- 变量赋值：x = 10
+- 条件语句：if x > 0:
+- 循环语句：for i in range(10):
+- 函数定义：def hello():
+
+5. 数据类型
+- 数值类型：int、float、complex
+- 字符串：str
+- 列表：list
+- 元组：tuple
+- 字典：dict
+- 集合：set
+
+6. Python 版本
+当前稳定版本是 Python 3.12，Python 2 已经不再维护。
+
+7. 学习资源
+- 官方文档：docs.python.org
+- 在线教程：Codecademy、Coursera
+- 书籍：《Python编程：从入门到实践》
