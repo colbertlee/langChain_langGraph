@@ -1,0 +1,220 @@
+name: Weekly Upgrades
+
+on:
+  schedule:
+    - cron: '0 9 * * MON'   # 每周一 09:00 UTC
+  workflow_dispatch:         # 手动触发
+    inputs:
+      test_webhook:
+        description: '仅测试 Slack/Discord webhook（不跑依赖检查）'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Check @assistant-ui/react + React latest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Cache npm
+        uses: actions/cache@v4
+        with:
+          path: web_console/node_modules
+          key: ${{ runner.os }}-npm-${{ hashFiles('web_console/package-lock.json') }}
+
+      - name: Install
+        working-directory: web_console
+        run: npm ci --no-audit --no-fund
+
+      - name: Run upgrade check
+        id: check
+        working-directory: web_console
+        run: |
+          echo "## 📦 Weekly dependency upgrade report" >> $GITHUB_STEP_SUMMARY
+          npm run check-upgrades >> $GITHUB_STEP_SUMMARY 2>&1 || true
+
+      - name: JSON report artifact
+        working-directory: web_console
+        run: npm run check-upgrades -- --json > upgrade-report.json
+
+      - name: Build Slack/Discord payload
+        id: payload
+        working-directory: web_console
+        run: |
+          node -e "
+            const fs = require('fs');
+            const r = JSON.parse(fs.readFileSync('upgrade-report.json', 'utf8'));
+            const majorUpgrades = r.packages.filter(p => p.majorJump);
+            const anyUpgrade = r.packages.filter(p => p.upgradeAvailable);
+
+            const fmt = (p) => '• **' + p.name + '**: `' + p.currentRange + '` → `' + (p.latestVersion ?? '?') + '`' + (p.majorJump ? ' ⚠️ **MAJOR**' : '');
+            const lines = majorUpgrades.length > 0
+              ? ['🚨 *Major upgrades available!*\n', ...majorUpgrades.map(fmt)]
+              : anyUpgrade.length > 0
+              ? ['🟡 *Minor/patch upgrades:*\n', ...anyUpgrade.map(fmt)]
+              : ['✅ All watched packages up-to-date.'];
+            const title = majorUpgrades.length > 0
+              ? ':rotating_light: Weekly upgrade check — major update available'
+              : anyUpgrade.length > 0
+              ? ':yellow_circle: Weekly upgrade check — patch/minor updates'
+              : ':white_check_mark: Weekly upgrade check — all current';
+
+            console.log('::notice title=Payload generated::' + lines.length + ' lines');
+            fs.writeFileSync('slack-payload.txt', JSON.stringify({ title, lines }, null, 2));
+          "
+
+      - name: Notify Slack
+        if: env.SLACK_WEBHOOK_URL != ''
+        uses: slackapi/slack-github-action@v1.27.0
+        with:
+          payload: |
+            {
+              "text": "Weekly upgrade report",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "$(cat web_console/slack-payload.txt)"
+                  }
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "text": { "type": "plain_text", "text": "查看完整报告" },
+                      "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    }
+                  ]
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Notify Discord
+        if: env.DISCORD_WEBHOOK_URL != ''
+        run: |
+          TITLE=$(node -e "console.log(JSON.parse(require('fs').readFileSync('web_console/slack-payload.txt','utf8')).title)")
+          CONTENT=$(node -e "console.log(JSON.parse(require('fs').readFileSync('web_console/slack-payload.txt','utf8')).lines.join('\n'))")
+          REPORT_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          curl -sS -X POST "$DISCORD_WEBHOOK_URL" \
+            -H 'Content-Type: application/json' \
+            -d "$(cat <<EOF
+          {
+            "username": "GitHub Actions",
+            "embeds": [{
+              "title": "$TITLE",
+              "description": "$CONTENT\n\n[查看报告]($REPORT_URL)",
+              "color": $(( [0, 5814783, 16776960, 15158332][[ 0, 1, 2, 3 ][ $(node -e "const l=JSON.parse(require('fs').readFileSync('web_console/slack-payload.txt','utf8')).title; console.log(l.includes('MAJOR')?3: l.includes('current')?1:2)") ]] )),
+              "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            }]
+          }
+          EOF
+          )"
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+
+      - name: Open issue if major upgrade available
+        if: env.OPEN_ISSUE_ON_MAJOR == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const r = JSON.parse(require('fs').readFileSync('web_console/upgrade-report.json','utf8'));
+            const majors = r.packages.filter(p => p.majorJump);
+            if (majors.length === 0) {
+              console.log('No major upgrades; skipping issue creation.');
+              return;
+            }
+            const body = [
+              '# Major dependency upgrade available',
+              '',
+              'Detected by weekly-upgrades workflow on ' + new Date().toISOString(),
+              '',
+              '## Affected packages',
+              '',
+              ...majors.map(m => '- **' + m.name + '**: `' + m.currentRange + '` → `' + m.latestVersion + '`'),
+              '',
+              '## Suggested steps',
+              '',
+              '1. Read release notes on npm / GitHub',
+              '2. Run `npm install <pkg>@latest`',
+              '3. Run `npm run check && npm test && npm run e2e`',
+              '4. Update tests/baselines if API changed',
+              '5. Merge to main and let CI verify',
+              '',
+              'See workflow run for full report.',
+            ].join('\n');
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🔔 Major dependency upgrade available: ' + majors.map(m => m.name).join(', '),
+              body,
+              labels: ['dependencies', 'upgrade'],
+            });
+        env:
+          OPEN_ISSUE_ON_MAJOR: 'true'
+
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-upgrade-report-${{ github.run_id }}
+          path: upgrade-report.json
+          retention-days: 90
+
+  # 独立 webhook 测试 job：手动触发时只发测试消息
+  # 不会真的跑 npm audit —— 仅用于验证 Slack/Discord 配置
+  webhook_test:
+    name: Webhook Test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && inputs.test_webhook == 'true'
+    steps:
+      - name: Test Slack webhook
+        if: env.SLACK_WEBHOOK_URL != ''
+        uses: slackapi/slack-github-action@v1.27.0
+        with:
+          payload: |
+            {
+              "text": "✅ Webhook test successful",
+              "blocks": [{
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "🎉 *Slack webhook works!*\n\n• Repository: ${{ github.repository }}\n• Triggered by: ${{ github.actor }}\n• Time: $(date -u +%Y-%m-%dT%H:%M:%SZ)\n\nYou will receive weekly upgrade reports here."
+                }
+              }]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Test Discord webhook
+        if: env.DISCORD_WEBHOOK_URL != ''
+        run: |
+          curl -sS -X POST "$DISCORD_WEBHOOK_URL" \
+            -H 'Content-Type: application/json' \
+            -d '{
+              "embeds": [{
+                "title": "✅ Discord webhook test successful",
+                "description": "🎉 *Webhook works!*\n\nYou will receive weekly upgrade reports here.",
+                "color": 5814783,
+                "footer": { "text": "${{ github.repository }} • ${{ github.actor }}" }
+              }]
+            }'
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+
+      - name: No webhook configured
+        if: env.SLACK_WEBHOOK_URL == '' && env.DISCORD_WEBHOOK_URL == ''
+        run: |
+          echo "::warning::No SLACK_WEBHOOK_URL or DISCORD_WEBHOOK_URL secrets configured."
+          echo "Add them in Settings → Secrets → Actions to receive weekly reports."

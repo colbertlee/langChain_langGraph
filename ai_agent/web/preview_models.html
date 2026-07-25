@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>模型下拉分组演示（阶段 B）</title>
+<style>
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: #1a1a1f; color: #e7e7ea; padding: 18px; margin: 0; }
+  h2 { font-size: 16px; margin: 0 0 12px; }
+  .box { background: #23232a; border: 1px solid #333; border-radius: 12px; padding: 16px; max-width: 640px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+  label { display:block; font-size:12px; color:#9ca3af; margin-bottom:6px; }
+  /* 阶段 B：原生 optgroup 样式覆盖 */
+  select { width:100%; padding:6px; border-radius:6px; background:#181820; color:#e7e7ea; border:1px solid #333; font-size:12px; }
+  select optgroup { font-weight:600; color:#6e8efb; background:#1a1a1f; padding:2px 0; }
+  select option { padding: 2px 4px; }
+  select option[disabled] { color:#555; font-style:italic; }
+  .hint { font-size: 11px; color: #6b7280; margin-top: 6px; }
+</style>
+</head>
+<body>
+<div class="box">
+  <h2>模型下拉分组（11 个 provider / 70 个模型）</h2>
+  <label>模型</label>
+  <select size="32">
+    <optgroup label="OpenAI · GPT-4o / GPT-4 / o1 等">
+      <option value="openai/gpt-4o-mini">gpt-4o-mini</option>
+      <option value="openai/gpt-4o">gpt-4o</option>
+      <option value="openai/gpt-4-turbo">gpt-4-turbo</option>
+      <option value="openai/gpt-4">gpt-4</option>
+      <option value="openai/gpt-3.5-turbo">gpt-3.5-turbo</option>
+      <option value="openai/o1-preview">o1-preview</option>
+      <option value="openai/o1-mini">o1-mini</option>
+    </optgroup>
+    <optgroup label="DeepSeek · 国产高性价比；含 R1 推理">
+      <option value="deepseek/deepseek-chat">deepseek-chat</option>
+      <option value="deepseek/deepseek-reasoner">deepseek-reasoner</option>
+      <option value="deepseek/deepseek-v3">deepseek-v3</option>
+    </optgroup>
+    <optgroup label="通义千问 (Qwen) · 阿里云 DashScope">
+      <option value="qwen/qwen-turbo">qwen-turbo</option>
+      <option value="qwen/qwen-max">qwen-max</option>
+      <option value="qwen/qwen3-max">qwen3-max</option>
+    </optgroup>
+    <optgroup label="智谱 GLM · GLM-4 / GLM-Z1 推理 · ⚠ 未配置 Key">
+      <option value="zhipu/glm-4-flash" disabled>glm-4-flash（未配置 Key）</option>
+      <option value="zhipu/glm-z1-flash" disabled>glm-z1-flash（未配置 Key）</option>
+    </optgroup>
+    <optgroup label="Kimi (Moonshot) · 超长上下文 128K · ⚠ 未配置 Key">
+      <option value="moonshot/moonshot-v1-8k" disabled>moonshot-v1-8k（未配置 Key）</option>
+      <option value="moonshot/kimi-k2-0711-preview" disabled>kimi-k2-0711-preview（未配置 Key）</option>
+    </optgroup>
+    <optgroup label="豆包 (Doubao) · 字节跳动 / 火山方舟 · ⚠ 未配置 Key">
+      <option value="doubao/doubao-pro-32k" disabled>doubao-pro-32k（未配置 Key）</option>
+      <option value="doubao/doubao-1-5-thinking-pro" disabled>doubao-1-5-thinking-pro（未配置 Key）</option>
+    </optgroup>
+    <optgroup label="腾讯混元 (Hunyuan) · ⚠ 未配置 Key">
+      <option value="hunyuan/hunyuan-turbo" disabled>hunyuan-turbo（未配置 Key）</option>
+      <option value="hunyuan/hunyuan-vision" disabled>hunyuan-vision（未配置 Key）</option>
+    </optgroup>
+    <optgroup label="硅基流动 (SiliconFlow) · ⚠ 未配置 Key">
+      <option value="siliconflow/Qwen/Qwen2.5-72B-Instruct" disabled>Qwen2.5-72B（未配置 Key）</option>
+      <option value="siliconflow/deepseek-ai/DeepSeek-R1" disabled>DeepSeek-R1（未配置 Key）</option>
+      <option value="siliconflow/Qwen/QwQ-32B-Preview" disabled>QwQ-32B-Preview（未配置 Key）</option>
+    </optgroup>
+    <optgroup label="MiniMax · MiniMax 01 · ⚠ 未配置 Key">
+      <option value="minimax/minimax-01" disabled>minimax-01（未配置 Key）</option>
+      <option value="minimax/abab7-chat-preview" disabled>abab7-chat-preview（未配置 Key）</option>
+    </optgroup>
+    <optgroup label="文心一言 (Baidu) · ERNIE · ⚠ 未配置 Key">
+      <option value="baidu/ernie-4-128k" disabled>ernie-4-128k（未配置 Key）</option>
+      <option value="baidu/ernie-bot-4" disabled>ernie-bot-4（未配置 Key）</option>
+    </optgroup>
+    <optgroup label="讯飞星火 (Spark) · Spark 3.5 · ⚠ 未配置 Key">
+      <option value="spark/spark-3.5" disabled>spark-3.5（未配置 Key）</option>
+    </optgroup>
+  </select>
+  <div class="hint">蓝色分组标题 = provider；灰色斜体 = 未配置 Key。点击保存后切换生效。</div>
+</div>
+</body>
+</html>

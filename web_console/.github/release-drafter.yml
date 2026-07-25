@@ -1,0 +1,60 @@
+# Release Drafter 配置
+# 用途：每次 push 到 main 时自动更新（或创建）Draft Release，
+#       按 PR label 把所有变更分组汇总为 changelog。
+# 用法：
+#   1. PR 加 label（feature / fix / chore 等）
+#   2. merge 到 main
+#   3. workflow 自动更新 .github/RELEASE_DRAFT.md（也可改 tag/直接 release）
+#   4. 人工点 "Publish release"
+name-template: 'v$RESOLVED_VERSION'
+tag-template: 'v$RESOLVED_VERSION'
+version-resolver:
+  major:
+    labels: ['breaking', 'major']
+  minor:
+    labels: ['feature', 'enhancement', 'feat']
+  patch:
+    labels: ['fix', 'bug', 'chore', 'docs', 'test', 'refactor']
+  default: patch
+
+categories:
+  - title: '🚨 Breaking Changes'
+    labels: ['breaking', 'major']
+    collapse-after: 5
+  - title: '✨ New Features'
+    labels: ['feature', 'enhancement', 'feat']
+    collapse-after: 20
+  - title: '🐛 Bug Fixes'
+    labels: ['fix', 'bug']
+    collapse-after: 10
+  - title: '⚡ Performance'
+    labels: ['performance', 'perf']
+  - title: '📝 Documentation'
+    labels: ['docs', 'documentation']
+    collapse-after: 10
+  - title: '🧪 Tests'
+    labels: ['test', 'tests']
+  - title: '🔧 Maintenance'
+    labels: ['chore', 'dependencies', 'refactor']
+    collapse-after: 15
+  - title: '📦 Dependencies'
+    labels: ['upgrade']
+    collapse-after: 10
+
+change-template: '- $TITLE (#$NUMBER) @$AUTHOR'
+
+template: |
+  ## Changes
+
+  $CHANGES
+
+  ---
+
+  **Full Changelog**: https://github.com/$OWNER/$REPOSITORY/compare/$PREVIOUS_TAG...v$RESOLVED_VERSION
+
+exclude-labels:
+  - 'skip-changelog'
+  - 'duplicate'
+  - 'invalid'
+
+include-pre-releases: false

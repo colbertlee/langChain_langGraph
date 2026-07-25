@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>阶段 A 演示 — 中间状态可视化</title>
+<style>
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; padding: 20px; background: #f7f7f8; color: #222; }
+  h1 { font-size: 18px; }
+  .frame { background: #fff; border: 1px solid #ddd; border-radius: 10px; padding: 16px; max-width: 720px; margin: 12px auto; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+  .user { background: #eff6ff; padding: 10px 14px; border-radius: 8px; margin: 8px 0; }
+  .ai { background: #fafafa; padding: 10px 14px; border-radius: 8px; margin: 8px 0; border-left: 3px solid #4f46e5; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; border: 0.5px solid #4f46e5; color: #4f46e5; font-size: 11px; margin: 2px 4px 2px 0; }
+  .pill.tool { border-color: #4f46e5; color: #4f46e5; }
+  .pill.safety { border-color: #f5a623; color: #f5a623; }
+  details.msg-thinking { margin-top: 8px; padding: 8px 12px; background: #f5f5f5; border-left: 3px solid #4f46e5; border-radius: 6px; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+  details.msg-thinking summary { cursor: pointer; font-weight: 600; }
+  details.msg-thinking pre { margin: 6px 0 0; white-space: pre-wrap; }
+  .msg-safety { margin-top: 8px; padding: 8px 12px; background: rgba(245,166,35,0.1); border-left: 3px solid #f5a623; border-radius: 6px; color: #f5a623; font-size: 12px; }
+</style>
+</head>
+<body>
+<h1>阶段 A 演示页面：中间状态可视化 + Prompt 版本管理</h1>
+
+<div class="frame">
+  <h3>场景 1：触发工具调用</h3>
+  <div class="user"><b>用户：</b>计算 (2 + 3) * 4</div>
+  <div class="ai">
+    <b>Agent：</b>好的，我先调用计算工具，再给出答案。<br>
+    <b>结果：</b>20
+    <div style="margin-top:6px;">
+      <span class="pill tool">🔧 calculate</span>
+      <span class="pill tool">🔧 get_current_time</span>
+    </div>
+    <details class="msg-thinking" open>
+      <summary>💭 思考过程（点击展开）</summary>
+      <pre>用户问的是一个数学运算。
+1. 评估表达式 (2 + 3) * 4
+2. 调用 calculate 工具
+3. 返回 20</pre>
+    </details>
+  </div>
+</div>
+
+<div class="frame">
+  <h3>场景 2：安全拦截</h3>
+  <div class="user"><b>用户：</b>删除系统目录 /etc/passwd</div>
+  <div class="ai">
+    <b>Agent：</b>（无输出，被拦截）
+    <div class="msg-safety">🛡️ ❌ 输入被阻止: 检测到危险命令 del /f /s /q</div>
+  </div>
+</div>
+
+<div class="frame">
+  <h3>场景 3：Prompt 版本管理（设置面板）</h3>
+  <div style="font-size: 13px;">
+    <div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:0.5px solid #eee;">
+      <div><b>default</b> <code>@ 2.0.0</code> <span style="font-size:10px; color:#4f46e5; border:0.5px solid #4f46e5; border-radius:4px; padding:1px 5px;">active</span></div>
+      <button disabled style="font-size:11px; padding:5px 9px; border-radius:4px; background:#eee;">回滚到此版</button>
+    </div>
+    <div style="font-size:11px; color:#888; padding:4px 0 8px;">阶段 A：拆分三段模板 + 显式 CoT 注入。</div>
+    <div style="display:flex; justify-content:space-between; padding:8px 0;">
+      <div><b>default</b> <code>@ 1.0.0</code></div>
+      <button style="font-size:11px; padding:5px 9px; border-radius:4px;">回滚到此版</button>
+    </div>
+    <div style="font-size:11px; color:#888; padding:4px 0 8px;">兼容原 _build_system_prompt 的行为，作为回滚兜底版本。</div>
+  </div>
+</div>
+
+</body>
+</html>

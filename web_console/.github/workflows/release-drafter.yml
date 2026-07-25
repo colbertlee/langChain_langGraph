@@ -1,0 +1,50 @@
+name: Release Drafter
+
+on:
+  push:
+    branches: [main, master]   # 项目默认分支是 master；加 main 兼容未来改名
+    tags: ['v*.*.*']   # 也响应 tag push
+  pull_request:
+    types: [opened, reopened, synchronize, closed]
+    branches: [main, master]
+
+permissions:
+  contents: write       # 创建/更新 draft release
+  pull-requests: read
+
+# 此 workflow 与 release.yml 协作：
+#   - release-drafter.yml 只负责维护 draft release 的 body（CHANGELOG 分类）
+#   - release.yml 负责最终 publish（PyPI / Docker / GH Release / Notify）
+#
+# 因此 release-drafter.yml 始终 publish: false，避免与 release.yml 抢发。
+
+jobs:
+  update_release_draft:
+    name: Update Release Draft
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))) ||
+      (github.event_name == 'pull_request' && github.action == 'closed' && github.event.pull_request.merged == true)
+    steps:
+      # ── 当 push tag 时：用 tag name 当 release version ──
+      - name: Resolve next version for tag push
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        id: next
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          # 去掉 pre-release 后缀（如 -rc.1 / -alpha.1）以匹配 release-drafter tag-name 模板
+          CLEAN=$(echo "${VERSION}" | sed -E 's/-(rc|alpha|beta)\..*$//')
+          echo "version=${CLEAN}" >> $GITHUB_OUTPUT
+          echo "Resolved release version: ${CLEAN}"
+
+      - uses: release-drafter/release-drafter@v6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # tag push：用 tag name
+          # main push / PR merge：用 next version（drafter 自动从 conventional commits 算）
+          tag-name: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && github.ref_name || format('v{0}', steps.next.outputs.version) }}
+          # 永远不自动 publish（让 release.yml 单独负责）
+          publish: false
+          # 配置：默认从 .github/release-drafter.yml 读（无需 config-name）
+          # 分类 commit 类型见 .github/release-drafter.yml

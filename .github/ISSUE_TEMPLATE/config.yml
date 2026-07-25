@@ -1,0 +1,9 @@
+# Issue Form 配置
+blank_issues_enabled: false   # 禁止空白 issue（必须选 template）
+contact_links:
+  - name: GitHub Discussions
+    url: https://github.com/colbertlee/langChain_langGraph/discussions
+    about: General questions and community chat
+  - name: Security Advisories
+    url: https://github.com/colbertlee/langChain_langGraph/security
+    about: Private security vulnerability reports

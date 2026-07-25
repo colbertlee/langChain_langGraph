@@ -1,0 +1,2202 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Agent · 工作台测试中心</title>
+<style>
+  :root {
+    --bg: #0a0a0b;
+    --surface: #15161a;
+    --surface-2: #1c1d22;
+    --border: #2a2b30;
+    --text: #e6e7eb;
+    --text-dim: #8a8c95;
+    --primary: #06b6d4;
+    --primary-2: #3b82f6;
+    --success: #10b981;
+    --warning: #f59e0b;
+    --danger: #f43f5e;
+    --code-bg: #0e0f12;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.55;
+  }
+  /* 顶部 */
+  header {
+    position: sticky; top: 0; z-index: 10;
+    background: linear-gradient(180deg, rgba(10,10,11,0.95), rgba(10,10,11,0.85));
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 24px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  header h1 {
+    margin: 0; font-size: 16px; font-weight: 600;
+    background: linear-gradient(135deg, var(--primary), var(--primary-2));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .meta { font-size: 12px; color: var(--text-dim); display: flex; gap: 12px; align-items: center; }
+  .meta .dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--text-dim);
+  }
+  .meta .dot.online { background: var(--success); box-shadow: 0 0 6px var(--success); animation: pulse 2s infinite; }
+  .meta .dot.offline { background: var(--danger); }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+  /* 布局 */
+  .layout { display: grid; grid-template-columns: 260px 1fr; min-height: calc(100vh - 50px); }
+  /* 侧栏 */
+  nav {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 16px 0;
+    overflow-y: auto;
+    max-height: calc(100vh - 50px);
+  }
+  nav .group-title {
+    padding: 8px 20px;
+    font-size: 11px; text-transform: uppercase;
+    color: var(--text-dim); letter-spacing: 1px;
+  }
+  nav button {
+    display: flex; align-items: center; gap: 10px;
+    width: 100%;
+    background: none; border: none;
+    color: var(--text); text-align: left;
+    padding: 10px 20px;
+    font-size: 13px; cursor: pointer;
+    border-left: 2px solid transparent;
+    transition: all 0.15s;
+  }
+  nav button:hover { background: var(--surface-2); }
+  nav button.active {
+    background: var(--surface-2);
+    border-left-color: var(--primary);
+    color: var(--primary);
+  }
+  nav button .ico { font-size: 15px; }
+  nav .count {
+    margin-left: auto;
+    background: var(--surface-2);
+    padding: 1px 7px; border-radius: 10px;
+    font-size: 10px; color: var(--text-dim);
+    font-family: "JetBrains Mono", monospace;
+  }
+  nav button.active .count {
+    background: var(--primary); color: white;
+  }
+  /* 主区 */
+  main {
+    padding: 24px 32px 80px;
+    overflow-y: auto;
+    max-height: calc(100vh - 50px);
+  }
+  .panel { display: none; }
+  .panel.active { display: block; animation: fadeIn 0.25s; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  .panel-header { margin-bottom: 24px; }
+  .panel h2 { margin: 0 0 6px; font-size: 22px; font-weight: 600; }
+  .panel .desc { color: var(--text-dim); font-size: 13px; }
+  .panel .desc code {
+    background: var(--code-bg); padding: 1px 6px; border-radius: 3px;
+    font-family: "JetBrains Mono", monospace; font-size: 12px;
+  }
+  /* 卡片网格 */
+  .card-grid {
+    display: grid; gap: 14px;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    display: flex; flex-direction: column;
+    transition: border-color 0.15s;
+  }
+  .card:hover { border-color: var(--primary); }
+  .card h3 {
+    margin: 0 0 6px; font-size: 14.5px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .card h3 .ico { font-size: 16px; }
+  .card .ep {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11.5px; color: var(--text-dim);
+    margin-bottom: 8px;
+  }
+  .card .ep code {
+    background: var(--code-bg); padding: 1px 6px; border-radius: 3px;
+    color: var(--primary);
+  }
+  .card .desc-mini {
+    font-size: 12px; color: var(--text-dim);
+    margin-bottom: 12px; flex: 1;
+  }
+  .card .actions {
+    display: flex; gap: 6px; flex-wrap: wrap;
+  }
+  /* 按钮 */
+  button.primary {
+    background: linear-gradient(135deg, var(--primary), var(--primary-2));
+    border: none; color: white;
+    padding: 8px 14px; border-radius: 6px;
+    cursor: pointer; font-size: 12px; font-weight: 500;
+    transition: transform 0.1s, box-shadow 0.2s;
+  }
+  button.primary:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(6,182,212,0.3); }
+  button.primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+  button.ghost {
+    background: var(--surface-2);
+    border: 1px solid var(--border); color: var(--text);
+    padding: 8px 14px; border-radius: 6px;
+    cursor: pointer; font-size: 12px;
+  }
+  button.ghost:hover { background: var(--border); }
+  button.mini {
+    background: var(--surface-2);
+    border: 1px solid var(--border); color: var(--text-dim);
+    padding: 4px 10px; border-radius: 4px;
+    cursor: pointer; font-size: 11px;
+  }
+  button.mini:hover { color: var(--text); }
+  /* 输入区 */
+  .input-area {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  .input-area .row {
+    display: flex; gap: 8px; align-items: center;
+    margin-bottom: 10px;
+  }
+  .input-area .row:last-child { margin-bottom: 0; }
+  .input-area label {
+    font-size: 12px; color: var(--text-dim);
+    min-width: 70px;
+  }
+  input[type="text"], input[type="number"], textarea, select {
+    flex: 1; min-width: 0;
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-family: "JetBrains Mono", Consolas, monospace;
+    font-size: 12.5px;
+    outline: none;
+  }
+  input[type="text"]:focus, input[type="number"]:focus, textarea:focus, select:focus {
+    border-color: var(--primary);
+  }
+  textarea { resize: vertical; min-height: 70px; }
+  /* 输出区 */
+  .output {
+    margin-top: 12px;
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+    font-family: "JetBrains Mono", Consolas, monospace;
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    min-height: 80px;
+    max-height: 500px;
+    overflow-y: auto;
+    line-height: 1.6;
+  }
+  .output:empty::before {
+    content: '等待执行…';
+    color: var(--text-dim); font-style: italic;
+  }
+  .output .pass { color: var(--success); }
+  .output .fail { color: var(--danger); }
+  .output .warn { color: var(--warning); }
+  .output .info { color: var(--primary); }
+  .output .key { color: #a78bfa; }
+  .output .str { color: #fbbf24; }
+  /* 状态行 */
+  .status-row {
+    display: flex; gap: 8px; align-items: center;
+    font-size: 11px; color: var(--text-dim);
+    margin-bottom: 8px;
+  }
+  .status-row .badge {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    padding: 2px 8px; border-radius: 4px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10.5px;
+  }
+  /* chat 样式 */
+  .chat-stream {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    min-height: 240px;
+    max-height: 420px;
+    overflow-y: auto;
+    margin-bottom: 12px;
+  }
+  .chat-msg {
+    margin-bottom: 12px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    max-width: 85%;
+    word-break: break-word;
+  }
+  .chat-msg.user {
+    background: var(--primary);
+    color: white;
+    margin-left: auto;
+  }
+  .chat-msg.assistant {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+  }
+  .chat-msg.error {
+    background: rgba(244, 63, 94, 0.15);
+    border: 1px solid var(--danger);
+    color: var(--danger);
+  }
+  .chat-msg.system {
+    background: rgba(245, 158, 11, 0.08);
+    border: 1px solid var(--warning);
+    color: var(--warning);
+    font-size: 12px;
+  }
+  .chat-msg .role {
+    font-size: 10px; color: var(--text-dim);
+    margin-bottom: 4px; text-transform: uppercase;
+  }
+  .chat-msg .content { font-size: 13px; white-space: pre-wrap; }
+  /* 列表卡 */
+  .list-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 8px;
+    display: flex; gap: 12px; align-items: flex-start;
+  }
+  .list-item .ico {
+    font-size: 16px; padding-top: 2px;
+  }
+  .list-item .body { flex: 1; min-width: 0; }
+  .list-item .title {
+    font-size: 13px; font-weight: 500;
+    margin-bottom: 4px;
+  }
+  .list-item .meta {
+    font-size: 11px; color: var(--text-dim);
+    font-family: "JetBrains Mono", monospace;
+  }
+  .list-item .actions {
+    display: flex; gap: 6px;
+  }
+  /* 空状态 */
+  .empty {
+    text-align: center; padding: 40px 20px;
+    color: var(--text-dim); font-size: 13px;
+  }
+  .empty .ico {
+    font-size: 36px; opacity: 0.4;
+    margin-bottom: 12px;
+  }
+  /* 滚动条 */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #3a3b40; }
+  /* Toast */
+  .toast {
+    position: fixed; bottom: 24px; right: 24px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 18px;
+    font-size: 13px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    z-index: 100;
+    animation: slideUp 0.25s;
+  }
+  .toast.ok { border-color: var(--success); color: var(--success); }
+  .toast.err { border-color: var(--danger); color: var(--danger); }
+  @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+  /* ====== 测试浮窗 ====== */
+  .tester-toggle {
+    position: fixed; right: 20px; bottom: 80px;
+    width: 48px; height: 48px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--primary), var(--primary-2));
+    color: white;
+    border: none; cursor: pointer;
+    font-size: 22px;
+    box-shadow: 0 4px 16px rgba(6,182,212,0.4);
+    z-index: 90;
+    display: flex; align-items: center; justify-content: center;
+    transition: transform 0.15s;
+  }
+  .tester-toggle:hover { transform: scale(1.1); }
+  .tester-toggle .badge {
+    position: absolute; top: -4px; right: -4px;
+    background: var(--danger); color: white;
+    font-size: 10px; padding: 2px 6px; border-radius: 10px;
+    font-weight: 600; min-width: 18px; text-align: center;
+    font-family: "JetBrains Mono", monospace;
+  }
+  .tester-toggle .badge.hidden { display: none; }
+
+  .tester-panel {
+    position: fixed; top: 50px; right: 0;
+    width: 420px; max-width: 90vw;
+    height: calc(100vh - 50px);
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    box-shadow: -8px 0 24px rgba(0,0,0,0.4);
+    z-index: 89;
+    display: none;
+    flex-direction: column;
+  }
+  .tester-panel.open { display: flex; }
+  .tester-panel header {
+    padding: 14px 16px;
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    position: relative;
+  }
+  .tester-panel header h3 {
+    margin: 0; font-size: 14px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .tester-panel header .actions {
+    display: flex; gap: 6px;
+  }
+  .tester-panel .icon-mini {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    width: 26px; height: 26px;
+    border-radius: 6px;
+    cursor: pointer; font-size: 13px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .tester-panel .icon-mini:hover { background: var(--border); }
+
+  .tester-stats {
+    padding: 10px 16px;
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--border);
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    font-size: 11px;
+  }
+  .tester-stats .stat-cell {
+    text-align: center;
+  }
+  .tester-stats .num {
+    font-size: 18px; font-weight: 600;
+    font-family: "JetBrains Mono", monospace;
+  }
+  .tester-stats .num.pass { color: var(--success); }
+  .tester-stats .num.fail { color: var(--danger); }
+  .tester-stats .num.warn { color: var(--warning); }
+  .tester-stats .lbl { color: var(--text-dim); font-size: 10px; }
+
+  .tester-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+  }
+  .tester-entry {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 8px;
+    overflow: hidden;
+    transition: border-color 0.15s;
+  }
+  .tester-entry:hover { border-color: var(--primary); }
+  .tester-entry.pass { border-left: 3px solid var(--success); }
+  .tester-entry.fail { border-left: 3px solid var(--danger); }
+  .tester-entry.warn { border-left: 3px solid var(--warning); }
+
+  .tester-entry .head {
+    padding: 10px 12px;
+    display: flex; align-items: center; gap: 8px;
+    cursor: pointer;
+  }
+  .tester-entry .head .status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--success);
+  }
+  .tester-entry.fail .head .status-dot { background: var(--danger); }
+  .tester-entry.warn .head .status-dot { background: var(--warning); }
+  .tester-entry .head .method {
+    font-size: 10px; padding: 2px 6px; border-radius: 3px;
+    background: var(--surface-2); color: var(--text-dim);
+    font-family: "JetBrains Mono", monospace;
+    font-weight: 600;
+  }
+  .tester-entry .head .method.POST { background: rgba(6,182,212,0.15); color: var(--primary); }
+  .tester-entry .head .method.DELETE { background: rgba(244,63,94,0.15); color: var(--danger); }
+  .tester-entry .head .path {
+    flex: 1; min-width: 0;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11.5px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .tester-entry .head .dt {
+    font-size: 10.5px;
+    color: var(--text-dim);
+    font-family: "JetBrains Mono", monospace;
+    min-width: 48px; text-align: right;
+  }
+  .tester-entry .head .dt.slow { color: var(--warning); }
+  .tester-entry .head .dt.vslow { color: var(--danger); }
+  .tester-entry .head .arrow {
+    color: var(--text-dim);
+    transition: transform 0.15s;
+  }
+  .tester-entry.open .head .arrow { transform: rotate(90deg); }
+
+  .tester-entry .body {
+    display: none;
+    padding: 0 12px 12px;
+    font-size: 11.5px;
+    line-height: 1.6;
+  }
+  .tester-entry.open .body { display: block; }
+
+  .tester-entry .checks {
+    display: flex; flex-direction: column; gap: 4px;
+    padding: 8px 0;
+  }
+  .tester-entry .check {
+    display: flex; gap: 6px; align-items: flex-start;
+    font-size: 11px;
+  }
+  .tester-entry .check.pass .ico { color: var(--success); }
+  .tester-entry .check.fail .ico { color: var(--danger); }
+  .tester-entry .check .ico { font-size: 12px; flex-shrink: 0; }
+  .tester-entry .check .label { color: var(--text-dim); font-weight: 500; min-width: 78px; }
+  .tester-entry .check .msg { color: var(--text); flex: 1; }
+  .tester-entry .check .msg code {
+    background: var(--code-bg); padding: 1px 5px; border-radius: 3px;
+    font-family: "JetBrains Mono", monospace;
+  }
+
+  .tester-entry .resp-preview {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10.5px;
+    max-height: 200px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--text-dim);
+  }
+  .tester-entry .actions-row {
+    display: flex; gap: 4px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+    margin-top: 8px;
+  }
+  .tester-entry .actions-row button {
+    flex: 1;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 5px 10px; border-radius: 5px;
+    cursor: pointer; font-size: 10.5px;
+  }
+  .tester-entry .actions-row button:hover { background: var(--border); }
+  .tester-entry .timestamp {
+    color: var(--text-dim);
+    font-size: 10px;
+    font-family: "JetBrains Mono", monospace;
+  }
+
+  .tester-empty {
+    text-align: center; padding: 40px 20px;
+    color: var(--text-dim); font-size: 12px;
+  }
+  .tester-empty .ico { font-size: 36px; opacity: 0.4; margin-bottom: 12px; }
+  /* 模型选择器 */
+  .model-row {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-bottom: 8px;
+    display: flex; gap: 12px; align-items: center;
+  }
+  .model-row .name {
+    font-family: "JetBrains Mono", monospace;
+    font-weight: 600;
+    min-width: 100px;
+  }
+  .model-row .desc-mini {
+    color: var(--text-dim); font-size: 11.5px;
+    flex: 1;
+  }
+  .model-row .badge-warn {
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--warning);
+    padding: 2px 8px; border-radius: 4px;
+    font-size: 10.5px;
+  }
+  .model-row .badge-ok {
+    background: rgba(16, 185, 129, 0.15);
+    color: var(--success);
+    padding: 2px 8px; border-radius: 4px;
+    font-size: 10.5px;
+  }
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 10px; margin-bottom: 14px;
+  }
+  .stat {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    text-align: center;
+  }
+  .stat .num {
+    font-size: 22px; font-weight: 600;
+    color: var(--primary);
+  }
+  .stat .lbl {
+    font-size: 11px; color: var(--text-dim);
+    text-transform: uppercase;
+    margin-top: 4px;
+  }
+  details {
+    margin-top: 10px;
+  }
+  details summary {
+    cursor: pointer;
+    color: var(--text-dim);
+    font-size: 12px;
+    user-select: none;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🧪 AI Agent 工作台测试中心</h1>
+  <div class="meta">
+    <span><span id="backend-dot" class="dot"></span><span id="backend-status">未连接</span></span>
+    <span>·</span>
+    <span id="clock"></span>
+  </div>
+</header>
+
+<!-- 测试浮窗：右下角按钮 + 右侧面板 -->
+<button class="tester-toggle" id="tester-toggle" onclick="toggleTester()" title="测试反馈面板">
+  🧪
+  <span class="badge hidden" id="tester-badge">0</span>
+</button>
+
+<aside class="tester-panel" id="tester-panel">
+  <header>
+    <h3>🧪 实时测试反馈</h3>
+    <div class="actions">
+      <button class="icon-mini" onclick="exportTesterReport()" title="导出报告">📋</button>
+      <button class="icon-mini" onclick="clearTester()" title="清空">🗑</button>
+      <button class="icon-mini" onclick="toggleTester()" title="关闭">✕</button>
+    </div>
+  </header>
+  <div class="tester-stats">
+    <div class="stat-cell">
+      <div class="num pass" id="stat-pass">0</div>
+      <div class="lbl">通过</div>
+    </div>
+    <div class="stat-cell">
+      <div class="num fail" id="stat-fail">0</div>
+      <div class="lbl">失败</div>
+    </div>
+    <div class="stat-cell">
+      <div class="num warn" id="stat-warn">0</div>
+      <div class="lbl">警告</div>
+    </div>
+    <div class="stat-cell">
+      <div class="num" id="stat-total" style="color:var(--text-dim)">0</div>
+      <div class="lbl">总数</div>
+    </div>
+  </div>
+  <div class="tester-list" id="tester-list">
+    <div class="tester-empty" id="tester-empty">
+      <div class="ico">🧪</div>
+      <div>暂无测试记录</div>
+      <div style="font-size:10.5px;margin-top:6px">点击左侧任意按钮即可看到反馈</div>
+    </div>
+  </div>
+</aside>
+
+<div class="layout">
+  <nav id="nav">
+    <!-- JS 填充 -->
+  </nav>
+
+  <main id="main">
+    <!-- JS 填充 -->
+  </main>
+</div>
+
+<script>
+// ============================================================
+// 配置
+// ============================================================
+const BASE = 'http://localhost:8000';
+
+// ============================================================
+// 测试用例目录（每个都是真实可点的按钮）
+// ============================================================
+const TESTS = [
+  {
+    group: '💬 Chat（核心）',
+    items: [
+      {
+        id: 'chat_stream',
+        name: '流式对话',
+        icon: '💬',
+        endpoint: 'POST /api/agent/run/stream',
+        desc: '真实 SSE 流式对话，模型自动用环境配置',
+        panel: 'chat'
+      },
+      {
+        id: 'chat_health',
+        name: '健康检查',
+        icon: '💓',
+        endpoint: 'GET /api/health',
+        desc: '检查后端 + agent 是否就绪',
+        panel: 'chat'
+      },
+    ]
+  },
+  {
+    group: '⚙️ Settings（模型管理）',
+    items: [
+      {
+        id: 'settings_models',
+        name: '模型清单 + 切换',
+        icon: '📦',
+        endpoint: 'GET /api/models + POST /api/model/switch',
+        desc: '查看 11 个 provider，切换当前模型',
+        panel: 'settings'
+      },
+    ]
+  },
+  {
+    group: '🧰 Tools（能力列表）',
+    items: [
+      {
+        id: 'tools_list',
+        name: '能力清单',
+        icon: '🧰',
+        endpoint: 'GET /api/capabilities',
+        desc: '查看所有 agent 能力（capabilities + task_types）',
+        panel: 'tools'
+      },
+    ]
+  },
+  {
+    group: '🧠 Memory（对话式记忆）',
+    items: [
+      {
+        id: 'memory_crud',
+        name: '对话式记忆 CRUD',
+        icon: '🧠',
+        endpoint: '/api/memory/{add|list|search|delete|stats}',
+        desc: '添加 / 列出 / 搜索 / 删除记忆',
+        panel: 'memory'
+      },
+    ]
+  },
+  {
+    group: '🤖 Agents（智能体管理）',
+    items: [
+      {
+        id: 'agents_list',
+        name: 'Agent 列表 + 负载',
+        icon: '🤖',
+        endpoint: 'GET /api/agents + /api/load_stats',
+        desc: '查看所有注册的智能体 + 实时负载',
+        panel: 'agents'
+      },
+    ]
+  },
+  {
+    group: '✋ Approval（人机协同）',
+    items: [
+      {
+        id: 'approval_hitl',
+        name: 'HITL 待审批 / 历史 / 统计',
+        icon: '✋',
+        endpoint: '/api/hitl/{pending|history|stats}',
+        desc: '人机协同审批流（pending + history + stats）',
+        panel: 'approval'
+      },
+      {
+        id: 'approval_policies',
+        name: '权限策略 + 强制开关',
+        icon: '🛡️',
+        endpoint: '/api/policies + /api/permission/enforce',
+        desc: '查看权限策略 + 切换强制模式',
+        panel: 'policies'
+      },
+    ]
+  },
+  {
+    group: '📡 Observability（可观测性）',
+    items: [
+      {
+        id: 'obs_events',
+        name: '事件流 + Trace + 指标',
+        icon: '📡',
+        endpoint: '/api/events + /api/traces + /api/metrics/prometheus',
+        desc: 'Prometheus 指标、trace span、实时事件',
+        panel: 'obs'
+      },
+    ]
+  },
+  {
+    group: '📝 Prompts（提示模板）',
+    items: [
+      {
+        id: 'prompts_list',
+        name: '系统提示 + 用户提示',
+        icon: '📝',
+        endpoint: '/api/prompts + /api/user-prompts',
+        desc: '查看所有 prompt 模板',
+        panel: 'prompts'
+      },
+    ]
+  },
+];
+
+// ============================================================
+// 通用 HTTP（带自动测试反馈）
+// ============================================================
+async function call(method, path, body = null, opts = {}) {
+  const init = { method, headers: { 'Accept': 'application/json' } };
+  if (body !== null) {
+    init.headers['Content-Type'] = 'application/json';
+    init.body = JSON.stringify(body);
+  }
+  const t0 = performance.now();
+  try {
+    const res = await fetch(BASE + path, init);
+    const dt = Math.round(performance.now() - t0);
+    const ct = res.headers.get('content-type') || '';
+    let payload;
+    if (ct.includes('application/json')) {
+      try { payload = await res.json(); } catch { payload = null; }
+    } else {
+      payload = await res.text();
+    }
+    const result = { ok: res.ok, status: res.status, dt, data: payload };
+    // 自动入栈测试反馈（silent 模式可跳过，比如流式请求）
+    if (!opts.silent) recordTest(method, path, body, result);
+    return result;
+  } catch (e) {
+    const dt = Math.round(performance.now() - t0);
+    const result = { ok: false, status: 0, dt, error: String(e) };
+    if (!opts.silent) recordTest(method, path, body, result);
+    return result;
+  }
+}
+
+function fmt(obj) {
+  if (obj === null || obj === undefined) return 'null';
+  if (typeof obj === 'string') return obj;
+  try { return JSON.stringify(obj, null, 2); } catch { return String(obj); }
+}
+
+// ============================================================
+// 渲染侧栏
+// ============================================================
+const nav = document.getElementById('nav');
+nav.innerHTML = TESTS.map((g, gi) => `
+  <div class="group-title">${g.group}</div>
+  ${g.items.map((it, i) => `
+    <button data-panel="${it.panel}" data-id="${it.id}" onclick="openPanel('${it.panel}')">
+      <span class="ico">${it.icon}</span>
+      <span>${it.name}</span>
+    </button>
+  `).join('')}
+`).join('') + `
+  <div class="group-title">工具</div>
+  <button onclick="openPanel('api_explorer')">
+    <span class="ico">🔬</span><span>API 浏览器</span>
+  </button>
+  <button onclick="openPanel('test_all')">
+    <span class="ico">⚡</span><span>一键全量</span>
+  </button>
+`;
+
+// ============================================================
+// 渲染主面板
+// ============================================================
+const main = document.getElementById('main');
+
+function html(strings, ...values) {
+  let s = '';
+  strings.forEach((str, i) => {
+    s += str + (i < values.length ? String(values[i]) : '');
+  });
+  return s;
+}
+
+// 把每个测试的 panel HTML 注入 main
+const PANEL_HTML = {};
+
+PANEL_HTML.chat = `
+<section id="panel-chat" class="panel">
+  <div class="panel-header">
+    <h2>💬 流式对话</h2>
+    <p class="desc">基于 <code>POST /api/agent/run/stream</code> 的 SSE 流式响应。无需真实 LLM 也能看到连接建立与降级路径。</p>
+  </div>
+
+  <div class="input-area">
+    <div class="row">
+      <label>输入：</label>
+      <input type="text" id="chat-input" value="你好，请自我介绍" placeholder="输入用户消息…" />
+      <button class="primary" id="chat-send-btn" onclick="sendChat()">发送</button>
+      <button class="ghost" id="chat-stop-btn" onclick="stopChat()" disabled>停止</button>
+    </div>
+    <div class="row">
+      <label>会话 ID：</label>
+      <input type="text" id="chat-session" value="session-test-001" />
+    </div>
+  </div>
+
+  <div class="chat-stream" id="chat-stream">
+    <div class="chat-msg system">
+      <div class="role">系统</div>
+      <div class="content">等待开始对话…（按上面"发送"按钮）</div>
+    </div>
+  </div>
+
+  <div class="row" style="gap:6px">
+    <button class="ghost" onclick="clearChat()">清空对话</button>
+    <button class="ghost" onclick="checkHealth()">健康检查</button>
+    <div id="chat-health-out" style="margin-left:auto"></div>
+  </div>
+</section>
+`;
+
+PANEL_HTML.settings = `
+<section id="panel-settings" class="panel">
+  <div class="panel-header">
+    <h2>⚙️ 模型管理</h2>
+    <p class="desc">查看所有 provider（11 个），切换当前激活模型。</p>
+  </div>
+
+  <div class="row" style="margin-bottom:12px">
+    <button class="primary" onclick="loadModels()">🔄 刷新模型清单</button>
+    <span id="settings-count" style="color:var(--text-dim); font-size:12px;"></span>
+  </div>
+
+  <div id="settings-list"></div>
+
+  <div class="output" id="settings-out"></div>
+</section>
+`;
+
+PANEL_HTML.tools = `
+<section id="panel-tools" class="panel">
+  <div class="panel-header">
+    <h2>🧰 能力清单</h2>
+    <p class="desc">所有 agent 能力（含 task_types + 元数据）。</p>
+  </div>
+
+  <div class="row" style="margin-bottom:12px">
+    <button class="primary" onclick="loadCapabilities()">🔄 刷新</button>
+    <span id="tools-count" style="color:var(--text-dim); font-size:12px;"></span>
+  </div>
+
+  <div id="tools-list"></div>
+  <div class="output" id="tools-out"></div>
+</section>
+`;
+
+PANEL_HTML.memory = `
+<section id="panel-memory" class="panel">
+  <div class="panel-header">
+    <h2>🧠 对话式记忆</h2>
+    <p class="desc">用户视角的极简记忆管理：填一行文本，按 Enter 发送。</p>
+  </div>
+
+  <div class="input-area">
+    <div class="row">
+      <label>内容：</label>
+      <input type="text" id="memory-input" placeholder="如：我每天 8 点起床"
+             onkeydown="if(event.key==='Enter'){addMemory();event.preventDefault();}" />
+      <button class="primary" id="memory-add-btn" onclick="addMemory()">记住</button>
+    </div>
+    <div class="row">
+      <label>搜索：</label>
+      <input type="text" id="memory-search" placeholder="关键词（可选）"
+             onkeydown="if(event.key==='Enter'){searchMemory();event.preventDefault();}" />
+      <button class="ghost" onclick="searchMemory()">搜索</button>
+    </div>
+  </div>
+
+  <div class="row" style="margin-bottom:12px">
+    <button class="primary" onclick="loadMemories()">📋 列出全部</button>
+    <button class="ghost" onclick="loadMemoryStats()">📊 统计</button>
+    <span id="memory-count" style="color:var(--text-dim); font-size:12px;"></span>
+  </div>
+
+  <div id="memory-list"></div>
+  <div class="output" id="memory-out"></div>
+</section>
+`;
+
+PANEL_HTML.agents = `
+<section id="panel-agents" class="panel">
+  <div class="panel-header">
+    <h2>🤖 智能体管理</h2>
+    <p class="desc">查看所有注册的 agent + 实时负载统计。</p>
+  </div>
+
+  <div class="row" style="margin-bottom:12px">
+    <button class="primary" onclick="loadAgents()">🔄 刷新 Agent 列表</button>
+    <button class="ghost" onclick="loadLoadStats()">📊 负载统计</button>
+    <span id="agents-count" style="color:var(--text-dim); font-size:12px;"></span>
+  </div>
+
+  <div id="agents-list"></div>
+  <div class="output" id="agents-out"></div>
+</section>
+`;
+
+PANEL_HTML.approval = `
+<section id="panel-approval" class="panel">
+  <div class="panel-header">
+    <h2>✋ 人机协同审批</h2>
+    <p class="desc">HITL（Human-in-the-Loop）：查看待审批、历史、统计。</p>
+  </div>
+
+  <div class="row" style="margin-bottom:12px">
+    <button class="primary" onclick="loadHitl('pending')">⏳ 待审批</button>
+    <button class="ghost" onclick="loadHitl('history')">📜 历史</button>
+    <button class="ghost" onclick="loadHitl('stats')">📊 统计</button>
+    <span id="hitl-count" style="color:var(--text-dim); font-size:12px;"></span>
+  </div>
+
+  <div id="hitl-list"></div>
+  <div class="output" id="hitl-out"></div>
+</section>
+`;
+
+PANEL_HTML.policies = `
+<section id="panel-policies" class="panel">
+  <div class="panel-header">
+    <h2>🛡️ 权限策略</h2>
+    <p class="desc">查看权限策略 + 切换强制模式（enforce）。</p>
+  </div>
+
+  <div class="row" style="margin-bottom:12px">
+    <button class="primary" onclick="loadPolicies()">📋 查看策略</button>
+    <button class="ghost" onclick="setEnforce(true)">✅ 开启强制</button>
+    <button class="ghost" onclick="setEnforce(false)">🚫 关闭强制</button>
+  </div>
+
+  <div id="policies-list"></div>
+  <div class="output" id="policies-out"></div>
+</section>
+`;
+
+PANEL_HTML.obs = `
+<section id="panel-obs" class="panel">
+  <div class="panel-header">
+    <h2>📡 可观测性</h2>
+    <p class="desc">事件流 + Trace spans + Prometheus 指标。</p>
+  </div>
+
+  <div class="row" style="margin-bottom:12px">
+    <button class="primary" onclick="loadEvents()">📨 事件流</button>
+    <button class="ghost" onclick="loadTraces()">🛰 Trace</button>
+    <button class="ghost" onclick="loadPrometheus()">📊 Prometheus</button>
+    <span id="obs-count" style="color:var(--text-dim); font-size:12px;"></span>
+  </div>
+
+  <div id="obs-list"></div>
+  <div class="output" id="obs-out"></div>
+</section>
+`;
+
+PANEL_HTML.prompts = `
+<section id="panel-prompts" class="panel">
+  <div class="panel-header">
+    <h2>📝 提示模板</h2>
+    <p class="desc">系统提示模板 + 用户提示模板。</p>
+  </div>
+
+  <div class="row" style="margin-bottom:12px">
+    <button class="primary" onclick="loadPrompts('system')">📋 系统提示</button>
+    <button class="ghost" onclick="loadPrompts('user')">📝 用户提示</button>
+    <span id="prompts-count" style="color:var(--text-dim); font-size:12px;"></span>
+  </div>
+
+  <div id="prompts-list"></div>
+  <div class="output" id="prompts-out"></div>
+</section>
+`;
+
+PANEL_HTML.api_explorer = `
+<section id="panel-api_explorer" class="panel">
+  <div class="panel-header">
+    <h2>🔬 API 浏览器</h2>
+    <p class="desc">自定义 method + path + body 测试任意端点。</p>
+  </div>
+
+  <div class="input-area">
+    <div class="row">
+      <label>方法：</label>
+      <select id="ex-method">
+        <option>GET</option>
+        <option>POST</option>
+        <option>PUT</option>
+        <option>DELETE</option>
+        <option>PATCH</option>
+      </select>
+      <label>路径：</label>
+      <input type="text" id="ex-path" value="/api/health" placeholder="/api/xxx" />
+      <button class="primary" onclick="apiExplorer()">▶ 执行</button>
+    </div>
+    <div class="row">
+      <label>Body (JSON)：</label>
+      <textarea id="ex-body" placeholder='{"key": "value"}'></textarea>
+    </div>
+  </div>
+
+  <div class="output" id="api_explorer-out"></div>
+</section>
+`;
+
+PANEL_HTML.test_all = `
+<section id="panel-test_all" class="panel">
+  <div class="panel-header">
+    <h2>⚡ 一键全量测试</h2>
+    <p class="desc">对所有 24 个端点跑一遍 e2e 测试，看汇总统计。</p>
+  </div>
+
+  <div class="row" style="margin-bottom:12px">
+    <button class="primary" onclick="runAllTests()">⚡ 跑全部 24 个用例</button>
+    <button class="ghost" onclick="document.getElementById('test_all-out').textContent=''">清空</button>
+  </div>
+
+  <div id="test_all-stats" class="stat-grid" style="display:none"></div>
+  <div class="output" id="test_all-out"></div>
+</section>
+`;
+
+main.innerHTML = Object.values(PANEL_HTML).join('');
+
+// ============================================================
+// 面板切换
+// ============================================================
+function openPanel(id) {
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  const btn = document.querySelector(`nav button[data-panel="${id}"]`);
+  if (btn) btn.classList.add('active');
+  const panel = document.getElementById('panel-' + id);
+  if (panel) panel.classList.add('active');
+  // 自动加载该面板数据
+  const loaders = {
+    settings: loadModels, tools: loadCapabilities, memory: loadMemories,
+    agents: loadAgents, approval: () => loadHitl('pending'),
+    policies: loadPolicies, obs: loadEvents, prompts: () => loadPrompts('system'),
+  };
+  if (loaders[id]) loaders[id]();
+}
+window.openPanel = openPanel;
+
+openPanel('chat');
+
+// ============================================================
+// 测试引擎（4 项检测 + 浮窗渲染）
+// ============================================================
+
+// 端点契约：期望的字段、最小/最大值
+const ENDPOINT_CONTRACT = {
+  '/api/health': { fields: ['status'] },
+  '/api/models': {
+    fields: ['providers', 'current_provider', 'current_model'],
+    rules: [
+      { name: 'providers 数量', check: d => Array.isArray(d.providers) && d.providers.length >= 6,
+        msg: d => `实际 ${d.providers?.length || 0}（应≥6）` },
+    ]
+  },
+  '/api/agents': {
+    fields: [],
+    rules: [
+      { name: '返回类型', check: d => Array.isArray(d) || (d && Array.isArray(d.agents)),
+        msg: d => `类型: ${Array.isArray(d) ? 'array' : typeof d}` },
+    ]
+  },
+  '/api/load_stats': { fields: [] },
+  '/api/capabilities': {
+    fields: ['capabilities'],
+    rules: [
+      { name: 'capabilities 数组', check: d => Array.isArray(d.capabilities),
+        msg: d => `类型: ${typeof d.capabilities}` },
+    ]
+  },
+  '/api/policies': {
+    fields: ['policies'],
+    rules: [
+      { name: 'policies 数组', check: d => Array.isArray(d.policies),
+        msg: d => `类型: ${typeof d.policies}` },
+    ]
+  },
+  '/api/hitl/pending': {
+    fields: ['pending', 'count'],
+    rules: [
+      { name: 'count 是数字', check: d => typeof d.count === 'number',
+        msg: d => `实际: ${typeof d.count}` },
+      { name: 'pending 是数组', check: d => Array.isArray(d.pending),
+        msg: d => `类型: ${typeof d.pending}` },
+    ]
+  },
+  '/api/hitl/history': { fields: ['history', 'count'] },
+  '/api/hitl/stats': { fields: [] },
+  '/api/events': {
+    rules: [
+      { name: '返回结构', check: d => Array.isArray(d) || (d && Array.isArray(d.events)),
+        msg: d => `类型: ${typeof d}` },
+    ]
+  },
+  '/api/traces': {
+    rules: [
+      { name: '返回结构', check: d => Array.isArray(d) || (d && Array.isArray(d.traces)),
+        msg: d => `类型: ${typeof d}` },
+    ]
+  },
+  '/api/memory/list': {
+    fields: ['items', 'total'],
+    rules: [
+      { name: 'items 是数组', check: d => Array.isArray(d.items),
+        msg: d => `类型: ${typeof d.items}` },
+      { name: 'total ≥ 0', check: d => typeof d.total === 'number' && d.total >= 0,
+        msg: d => `total=${d.total}` },
+    ]
+  },
+  '/api/memory/stats': {
+    rules: [
+      { name: 'total 字段', check: d => typeof d.total === 'number',
+        msg: d => `类型: ${typeof d.total}` },
+    ]
+  },
+  '/api/memory/search': {
+    rules: [
+      { name: '返回数组', check: d => Array.isArray(d),
+        msg: d => `类型: ${typeof d}` },
+    ]
+  },
+  '/api/prompts': {
+    fields: ['templates'],
+    rules: [
+      { name: 'templates 是数组', check: d => Array.isArray(d.templates),
+        msg: d => `类型: ${typeof d.templates}` },
+    ]
+  },
+  '/api/user-prompts': {
+    fields: ['templates'],
+    rules: [
+      { name: 'templates 是数组', check: d => Array.isArray(d.templates),
+        msg: d => `类型: ${typeof d.templates}` },
+    ]
+  },
+};
+
+// 匹配路径规则
+function matchContract(path) {
+  // 完全匹配优先
+  if (ENDPOINT_CONTRACT[path]) return ENDPOINT_CONTRACT[path];
+  // 前缀匹配
+  for (const [k, v] of Object.entries(ENDPOINT_CONTRACT)) {
+    if (path.startsWith(k)) return v;
+  }
+  return null;
+}
+
+function runChecks(method, path, body, result) {
+  const checks = [];
+
+  // 1. HTTP 状态
+  if (result.status === 0) {
+    checks.push({ kind: 'fail', label: '连接', msg: `无法连接后端 (${result.error || 'network error'})` });
+  } else if (result.ok) {
+    checks.push({ kind: 'pass', label: 'HTTP', msg: `${result.status} ${result.dt}ms` });
+  } else {
+    checks.push({ kind: 'fail', label: 'HTTP', msg: `${result.status} (失败)` });
+  }
+
+  // 2. 响应时间
+  if (result.dt < 500) {
+    checks.push({ kind: 'pass', label: '耗时', msg: `${result.dt}ms（快）` });
+  } else if (result.dt < 1000) {
+    checks.push({ kind: 'pass', label: '耗时', msg: `${result.dt}ms（正常）` });
+  } else if (result.dt < 3000) {
+    checks.push({ kind: 'warn', label: '耗时', msg: `${result.dt}ms（偏慢）` });
+  } else {
+    checks.push({ kind: 'fail', label: '耗时', msg: `${result.dt}ms（慢！>3s）` });
+  }
+
+  // 仅在响应成功时检查字段与规则
+  if (result.ok && result.data && typeof result.data === 'object') {
+    const contract = matchContract(path);
+    if (contract) {
+      // 字段完整性
+      if (contract.fields && contract.fields.length) {
+        for (const f of contract.fields) {
+          const present = f in result.data;
+          checks.push({
+            kind: present ? 'pass' : 'fail',
+            label: '字段',
+            msg: present ? `<code>${f}</code> ✓` : `<code>${f}</code> 缺失`
+          });
+        }
+      }
+      // 数据合理性
+      if (contract.rules && contract.rules.length) {
+        for (const rule of contract.rules) {
+          try {
+            const ok = rule.check(result.data);
+            checks.push({
+              kind: ok ? 'pass' : 'fail',
+              label: '合理性',
+              msg: ok ? `${rule.name} ✓` : `${rule.name}：${rule.msg(result.data)}`
+            });
+          } catch (e) {
+            checks.push({ kind: 'warn', label: '合理性', msg: `${rule.name} 检查异常: ${e.message}` });
+          }
+        }
+      }
+    }
+  } else if (result.ok && typeof result.data === 'string') {
+    // 文本响应（Prometheus 等）
+    checks.push({ kind: 'pass', label: '字段', msg: `文本响应 (${result.data.length} 字节)` });
+  }
+
+  return checks;
+}
+
+function buildCurl(method, path, body) {
+  let c = `curl -X ${method} 'http://localhost:8000${path}' \\\n`;
+  c += `  -H 'Accept: application/json'`;
+  if (body) c += ` \\\n  -H 'Content-Type: application/json' \\\n  -d '${JSON.stringify(body).replace(/'/g, "'\\''")}'`;
+  return c;
+}
+
+const testerEntries = [];
+let testerCounter = 0;
+let testerStats = { pass: 0, fail: 0, warn: 0 };
+
+function recordTest(method, path, body, result) {
+  const id = ++testerCounter;
+  const checks = runChecks(method, path, body, result);
+  const entry = {
+    id, method, path, body, result, checks,
+    timestamp: Date.now(),
+    status: result.ok ? 'pass' : 'fail',
+  };
+  testerEntries.unshift(entry);
+  // 仅保留最近 50 条
+  if (testerEntries.length > 50) testerEntries.pop();
+
+  // 更新统计
+  testerStats = { pass: 0, fail: 0, warn: 0 };
+  for (const e of testerEntries) {
+    for (const c of e.checks) {
+      if (c.kind === 'pass') testerStats.pass++;
+      else if (c.kind === 'fail') testerStats.fail++;
+      else if (c.kind === 'warn') testerStats.warn++;
+    }
+  }
+
+  renderTesterPanel();
+  updateTesterBadge();
+}
+
+function renderTesterPanel() {
+  const list = document.getElementById('tester-list');
+  const empty = document.getElementById('tester-empty');
+  if (!list) return; // 防御：DOM 未就绪
+  if (testerEntries.length === 0) {
+    empty.style.display = 'block';
+    list.querySelectorAll('.tester-entry').forEach(e => e.remove());
+  } else {
+    empty.style.display = 'none';
+    // 增量更新：只 prepend 新条目（最新在顶部）
+    // 找出 DOM 中已存在的 id 集合
+    const existingIds = new Set(
+      Array.from(list.querySelectorAll('.tester-entry'))
+        .map(el => Number(el.dataset.id))
+    );
+    // 找出需要新增的条目（最新在前）
+    const newOnes = [];
+    for (const e of testerEntries) {
+      if (!existingIds.has(e.id)) newOnes.push(e);
+    }
+    // 限制最大 50 条，超过则删最旧的 DOM
+    const maxKeep = 50;
+    const domEntries = Array.from(list.querySelectorAll('.tester-entry'));
+    if (domEntries.length > maxKeep) {
+      domEntries.slice(maxKeep).forEach(el => el.remove());
+    }
+    // prepend 新条目（注意顺序：最新的在最前）
+    if (newOnes.length > 0) {
+      const newHtml = newOnes.map(e => renderEntry(e)).join('');
+      list.insertAdjacentHTML('afterbegin', newHtml);
+    }
+  }
+  // 统计
+  const sp = document.getElementById('stat-pass');
+  const sf = document.getElementById('stat-fail');
+  const sw = document.getElementById('stat-warn');
+  const st = document.getElementById('stat-total');
+  if (sp) sp.textContent = testerStats.pass;
+  if (sf) sf.textContent = testerStats.fail;
+  if (sw) sw.textContent = testerStats.warn;
+  if (st) st.textContent = testerEntries.length;
+}
+
+function renderEntry(e) {
+  const dtClass = e.result.dt > 3000 ? 'vslow' : e.result.dt > 1000 ? 'slow' : '';
+  const time = new Date(e.timestamp).toLocaleTimeString('zh-CN', { hour12: false });
+  const hasChecks = e.checks.some(c => c.kind === 'fail' || c.kind === 'warn');
+  const preview = typeof e.result.data === 'object'
+    ? JSON.stringify(e.result.data, null, 2).slice(0, 800)
+    : String(e.result.data || '').slice(0, 800);
+  return `
+    <div class="tester-entry ${e.status}" data-id="${e.id}">
+      <div class="head" onclick="toggleEntry(${e.id})">
+        <span class="status-dot"></span>
+        <span class="method ${e.method}">${e.method}</span>
+        <span class="path" title="${e.path}">${e.path}</span>
+        <span class="dt ${dtClass}">${e.result.dt}ms</span>
+        ${hasChecks ? '<span style="color:var(--warning)">⚠</span>' : '<span style="color:var(--success)">✓</span>'}
+        <span class="arrow">▶</span>
+      </div>
+      <div class="body">
+        <div class="checks">
+          ${e.checks.map(c => `
+            <div class="check ${c.kind}">
+              <span class="ico">${c.kind === 'pass' ? '✓' : c.kind === 'fail' ? '✗' : '⚠'}</span>
+              <span class="label">${c.label}</span>
+              <span class="msg">${c.msg}</span>
+            </div>
+          `).join('')}
+        </div>
+        <div class="timestamp">${time} · ${e.result.status}</div>
+        <details style="margin-top:8px">
+          <summary style="cursor:pointer;color:var(--text-dim);font-size:11px">📄 响应体（前 800 字符）</summary>
+          <div class="resp-preview">${escapeHtml(preview)}</div>
+        </details>
+        <div class="actions-row">
+          <button onclick="copyCurl(${e.id})">📋 复制 curl</button>
+          <button onclick="replayRequest(${e.id})">▶ 重放</button>
+          <button onclick="removeEntry(${e.id})">🗑 删除</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+function toggleEntry(id) {
+  const el = document.querySelector(`.tester-entry[data-id="${id}"]`);
+  if (el) el.classList.toggle('open');
+}
+
+function copyCurl(id) {
+  const e = testerEntries.find(x => x.id === id);
+  if (!e) return;
+  const curl = buildCurl(e.method, e.path, e.body);
+  navigator.clipboard.writeText(curl).then(() => toast('curl 已复制', 'ok'));
+}
+
+async function replayRequest(id) {
+  const e = testerEntries.find(x => x.id === id);
+  if (!e) return;
+  toast(`重放: ${e.method} ${e.path}`, 'ok');
+  await call(e.method, e.path, e.body);
+}
+
+function removeEntry(id) {
+  const idx = testerEntries.findIndex(e => e.id === id);
+  if (idx >= 0) testerEntries.splice(idx, 1);
+  renderTesterPanel();
+  updateTesterBadge();
+}
+
+function clearTester() {
+  testerEntries.length = 0;
+  testerCounter = 0;
+  testerStats = { pass: 0, fail: 0, warn: 0 };
+  renderTesterPanel();
+  updateTesterBadge();
+  toast('已清空', 'ok');
+}
+
+function updateTesterBadge() {
+  const badge = document.getElementById('tester-badge');
+  const failCount = testerStats.fail;
+  if (failCount > 0) {
+    badge.textContent = failCount;
+    badge.classList.remove('hidden');
+  } else {
+    badge.classList.add('hidden');
+  }
+}
+
+function toggleTester() {
+  const panel = document.getElementById('tester-panel');
+  panel.classList.toggle('open');
+}
+
+function exportTesterReport() {
+  const lines = [
+    `# 测试报告 · ${new Date().toLocaleString('zh-CN')}`,
+    ``,
+    `总计: ${testerEntries.length}`,
+    `通过: ${testerStats.pass} | 失败: ${testerStats.fail} | 警告: ${testerStats.warn}`,
+    ``,
+    `---`,
+  ];
+  for (const e of testerEntries) {
+    lines.push(`\n## [${e.result.status}] ${e.method} ${e.path} (${e.result.dt}ms)`);
+    for (const c of e.checks) {
+      const sym = c.kind === 'pass' ? '✓' : c.kind === 'fail' ? '✗' : '⚠';
+      lines.push(`  ${sym} ${c.label}: ${c.msg.replace(/<[^>]+>/g, '')}`);
+    }
+    if (e.body) lines.push(`  body: ${JSON.stringify(e.body)}`);
+  }
+  const text = lines.join('\n');
+  navigator.clipboard.writeText(text).then(() => toast(`已复制 ${text.length} 字符到剪贴板`, 'ok'));
+}
+
+// 把上述函数挂到 window，供 onclick 调用
+window.toggleTester = toggleTester;
+window.toggleEntry = toggleEntry;
+window.copyCurl = copyCurl;
+window.replayRequest = replayRequest;
+window.removeEntry = removeEntry;
+window.clearTester = clearTester;
+window.exportTesterReport = exportTesterReport;
+
+// ============================================================
+// 后端状态指示
+// ============================================================
+async function updateBackendStatus() {
+  const dot = document.getElementById('backend-dot');
+  const status = document.getElementById('backend-status');
+  // silent: 后端健康检查不应进入浮窗（避免每 3s 重新渲染 50 条记录）
+  const r = await call('GET', '/api/health', null, { silent: true });
+  if (r.ok) {
+    dot.className = 'dot online';
+    status.textContent = '后端在线';
+  } else if (r.status === 0) {
+    dot.className = 'dot offline';
+    status.textContent = '后端离线';
+  } else {
+    dot.className = 'dot';
+    status.textContent = `后端异常 (${r.status})`;
+  }
+}
+setInterval(updateBackendStatus, 5000);
+updateBackendStatus();
+
+setInterval(() => {
+  document.getElementById('clock').textContent = new Date().toLocaleTimeString('zh-CN');
+}, 1000);
+document.getElementById('clock').textContent = new Date().toLocaleTimeString('zh-CN');
+
+// ============================================================
+// Toast
+// ============================================================
+let toastTimer;
+function toast(msg, kind = 'ok') {
+  const existing = document.querySelector('.toast');
+  if (existing) existing.remove();
+  const el = document.createElement('div');
+  el.className = `toast ${kind}`;
+  el.textContent = msg;
+  document.body.appendChild(el);
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.remove(), 2400);
+}
+
+// ============================================================
+// ========== 各面板逻辑 ==========
+// ============================================================
+
+// -------- Chat --------
+let chatAbort = null;
+function appendChat(role, content) {
+  const stream = document.getElementById('chat-stream');
+  const msg = document.createElement('div');
+  msg.className = `chat-msg ${role}`;
+  const roleText = role === 'user' ? '用户' : role === 'assistant' ? '助手' : role === 'error' ? '错误' : '系统';
+  msg.innerHTML = `<div class="role">${roleText}</div><div class="content"></div>`;
+  msg.querySelector('.content').textContent = content;
+  stream.appendChild(msg);
+  stream.scrollTop = stream.scrollHeight;
+  return msg;
+}
+
+function clearChat() {
+  const stream = document.getElementById('chat-stream');
+  stream.innerHTML = `<div class="chat-msg system"><div class="role">系统</div><div class="content">对话已清空</div></div>`;
+}
+
+async function checkHealth() {
+  const r = await call('GET', '/api/health');
+  const out = document.getElementById('chat-health-out');
+  if (r.ok) {
+    out.innerHTML = `<span class="pass">✅ 在线 ${r.dt}ms</span>`;
+  } else if (r.status === 0) {
+    out.innerHTML = `<span class="fail">❌ 无法连接（确认 app.py 已启动）</span>`;
+  } else {
+    out.innerHTML = `<span class="warn">⚠️ HTTP ${r.status}</span>`;
+  }
+}
+
+async function sendChat() {
+  const input = document.getElementById('chat-input');
+  const text = input.value.trim();
+  if (!text) return;
+  const session = document.getElementById('chat-session').value || 'default';
+  appendChat('user', text);
+  input.value = '';
+  const sendBtn = document.getElementById('chat-send-btn');
+  const stopBtn = document.getElementById('chat-stop-btn');
+  sendBtn.disabled = true;
+  stopBtn.disabled = false;
+  const t0 = performance.now();
+  chatAbort = new AbortController();
+  try {
+    const res = await fetch(BASE + '/api/agent/run/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_input: text, session_id: session, stream: true }),
+      signal: chatAbort.signal,
+    });
+    // 手动记录流式请求
+    recordTest('POST', '/api/agent/run/stream', { user_input: text, session_id: session },
+      { ok: res.ok, status: res.status, dt: Math.round(performance.now() - t0), data: { streaming: true } });
+    if (!res.ok) {
+      const err = await res.text();
+      appendChat('error', `[HTTP ${res.status}] ${err}`);
+      return;
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let fullText = '';
+    const assistantMsg = appendChat('assistant', '');
+    const contentEl = assistantMsg.querySelector('.content');
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const payload = line.slice(6).trim();
+        if (!payload) continue;
+        try {
+          const obj = JSON.parse(payload);
+          if (obj.type === 'content' || obj.type === 'text') {
+            fullText += obj.data || obj.text || '';
+            contentEl.textContent = fullText;
+          } else if (obj.type === 'error') {
+            contentEl.textContent = `⚠️ ${obj.data || '未知错误'}`;
+            contentEl.style.color = 'var(--warning)';
+          } else if (obj.type === 'tool_call') {
+            fullText += `\n🔧 [工具调用] ${obj.data}\n`;
+            contentEl.textContent = fullText;
+          } else if (obj.type === 'tool_result') {
+            fullText += `📦 ${obj.data}\n`;
+            contentEl.textContent = fullText;
+          }
+        } catch (e) {
+          // ignore
+        }
+      }
+      const stream = document.getElementById('chat-stream');
+      stream.scrollTop = stream.scrollHeight;
+    }
+    const dt = Math.round(performance.now() - t0);
+    if (!fullText) {
+      contentEl.textContent = `（无响应，${dt}ms）`;
+    } else {
+      contentEl.textContent += `\n\n—— ${dt}ms ——`;
+    }
+  } catch (e) {
+    appendChat('error', String(e));
+  } finally {
+    sendBtn.disabled = false;
+    stopBtn.disabled = true;
+    chatAbort = null;
+  }
+}
+window.sendChat = sendChat;
+
+function stopChat() {
+  if (chatAbort) chatAbort.abort();
+}
+window.stopChat = stopChat;
+window.checkHealth = checkHealth;
+window.clearChat = clearChat;
+
+// -------- Settings --------
+async function loadModels() {
+  const out = document.getElementById('settings-out');
+  out.textContent = '加载中…';
+  const r = await call('GET', '/api/models');
+  const list = document.getElementById('settings-list');
+  const countEl = document.getElementById('settings-count');
+  if (!r.ok) {
+    out.textContent = `❌ HTTP ${r.status}：${r.error || ''}`;
+    list.innerHTML = '';
+    countEl.textContent = '';
+    return;
+  }
+  const data = r.data || {};
+  const providers = data.providers || [];
+  countEl.textContent = `共 ${providers.length} 个 provider，当前：${data.current_provider}/${data.current_model}`;
+  list.innerHTML = providers.map(p => {
+    const hasKey = p.has_api_key;
+    const badge = hasKey
+      ? '<span class="badge-ok">已配置 Key</span>'
+      : '<span class="badge-warn">未配置 Key</span>';
+    return `
+      <div class="model-row">
+        <div class="name">${p.id}</div>
+        <div class="desc-mini">
+          <div>${p.name || p.id} ${p.is_openai_compatible === false ? '（原生协议）' : '（OpenAI 兼容）'}</div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:10.5px; color:var(--text-dim)">${p.base_url || ''}</div>
+        </div>
+        ${badge}
+        <select data-provider="${p.id}" style="min-width:200px">
+          ${(p.models || []).map(m => `<option value="${m.id || m}">${m.id || m}</option>`).join('')}
+        </select>
+        <button class="mini" onclick="switchModel('${p.id}', this)">切换</button>
+      </div>
+    `;
+  }).join('') || '<div class="empty">没有 provider</div>';
+  out.textContent = fmt(data).slice(0, 600);
+}
+window.loadModels = loadModels;
+
+async function switchModel(provider, btn) {
+  const select = btn.previousElementSibling;
+  const model = select.value;
+  const out = document.getElementById('settings-out');
+  out.textContent = `切换 ${provider}/${model} …`;
+  const r = await call('POST', '/api/model/switch', { provider, model_name: model });
+  if (r.ok) {
+    toast(`已切换到 ${provider}/${model}`, 'ok');
+    out.textContent = `✅ 切换成功\n${fmt(r.data)}`;
+    loadModels();
+  } else {
+    toast('切换失败', 'err');
+    out.textContent = `❌ HTTP ${r.status}\n${fmt(r.data)}`;
+  }
+}
+window.switchModel = switchModel;
+
+// -------- Tools --------
+async function loadCapabilities() {
+  const r = await call('GET', '/api/capabilities');
+  const list = document.getElementById('tools-list');
+  const countEl = document.getElementById('tools-count');
+  const out = document.getElementById('tools-out');
+  if (!r.ok) {
+    list.innerHTML = '';
+    countEl.textContent = '';
+    out.textContent = `❌ HTTP ${r.status}`;
+    return;
+  }
+  const data = r.data || {};
+  const caps = Array.isArray(data) ? data : (data.capabilities || []);
+  const taskTypes = data.task_types || [];
+  countEl.textContent = `共 ${caps.length} 个能力，${taskTypes.length} 个任务类型`;
+  list.innerHTML = caps.map(c => `
+    <div class="list-item">
+      <div class="ico">🧰</div>
+      <div class="body">
+        <div class="title"><code>${c.name}</code></div>
+        <div class="meta">${c.description || ''}</div>
+        ${c.keywords && c.keywords.length ? `<div class="meta">关键字: ${c.keywords.join(', ')}</div>` : ''}
+        ${c.preferred_worker_tags && c.preferred_worker_tags.length ? `<div class="meta">tags: ${c.preferred_worker_tags.join(', ')}</div>` : ''}
+      </div>
+    </div>
+  `).join('') || '<div class="empty">没有能力</div>';
+  out.textContent = fmt(data).slice(0, 800);
+}
+window.loadCapabilities = loadCapabilities;
+
+// -------- Memory --------
+async function loadMemories() {
+  const r = await call('GET', '/api/memory/list?limit=50');
+  const list = document.getElementById('memory-list');
+  const out = document.getElementById('memory-out');
+  const countEl = document.getElementById('memory-count');
+  if (!r.ok) {
+    list.innerHTML = '';
+    out.textContent = `❌ HTTP ${r.status}`;
+    countEl.textContent = '';
+    return;
+  }
+  const items = r.data?.items || [];
+  countEl.textContent = `共 ${items.length} 条`;
+  if (items.length === 0) {
+    list.innerHTML = `<div class="empty"><div class="ico">🧠</div>还没有记忆<br><span style="font-size:11px">在上面输入框写一条试试</span></div>`;
+  } else {
+    list.innerHTML = items.map(it => `
+      <div class="list-item" data-id="${it.id}">
+        <div class="ico">🧠</div>
+        <div class="body">
+          <div class="title">${it.content || it.value || ''}</div>
+          <div class="meta">#${it.id} · ${it.memory_type || 'fact'} · 重要度 ${it.importance ?? '-'} · scope=${it.scope || 'global'}</div>
+        </div>
+        <div class="actions">
+          <button class="mini" onclick="deleteMemory(${it.id})">删除</button>
+        </div>
+      </div>
+    `).join('');
+  }
+  out.textContent = fmt(r.data).slice(0, 600);
+}
+window.loadMemories = loadMemories;
+
+async function addMemory() {
+  const input = document.getElementById('memory-input');
+  const text = input.value.trim();
+  if (!text) return;
+  if (text.length > 2000) {
+    toast('内容不能超过 2000 字', 'err');
+    return;
+  }
+  const btn = document.getElementById('memory-add-btn');
+  btn.disabled = true;
+  try {
+    const r = await call('POST', '/api/memory/add', { content: text });
+    if (r.ok) {
+      toast('已记住 ✓', 'ok');
+      input.value = '';
+      loadMemories();
+    } else {
+      toast('写入失败', 'err');
+      document.getElementById('memory-out').textContent = `❌ HTTP ${r.status}\n${fmt(r.data)}`;
+    }
+  } finally {
+    btn.disabled = false;
+  }
+}
+window.addMemory = addMemory;
+
+async function searchMemory() {
+  const kw = document.getElementById('memory-search').value.trim();
+  const r = await call('GET', `/api/memory/search?keyword=${encodeURIComponent(kw)}&limit=20`);
+  const out = document.getElementById('memory-out');
+  const list = document.getElementById('memory-list');
+  if (!r.ok) {
+    out.textContent = `❌ HTTP ${r.status}`;
+    return;
+  }
+  const items = Array.isArray(r.data) ? r.data : [];
+  out.textContent = `关键词 "${kw}" 找到 ${items.length} 条\n\n${fmt(r.data).slice(0, 800)}`;
+  list.innerHTML = items.length === 0
+    ? '<div class="empty"><div class="ico">🔍</div>未找到匹配</div>'
+    : items.map(it => `
+      <div class="list-item">
+        <div class="ico">🔍</div>
+        <div class="body">
+          <div class="title">${it.content || it.value || ''}</div>
+          <div class="meta">#${it.id} · ${it.memory_type || 'fact'} · 相似度 ${(it.score || 0).toFixed(3)}</div>
+        </div>
+      </div>
+    `).join('');
+}
+window.searchMemory = searchMemory;
+
+async function deleteMemory(id) {
+  if (!confirm(`删除记忆 #${id}？`)) return;
+  const r = await call('DELETE', `/api/memory/${id}`);
+  if (r.ok) {
+    toast('已删除', 'ok');
+    loadMemories();
+  } else {
+    toast('删除失败', 'err');
+  }
+}
+window.deleteMemory = deleteMemory;
+
+async function loadMemoryStats() {
+  const r = await call('GET', '/api/memory/stats');
+  const out = document.getElementById('memory-out');
+  if (!r.ok) {
+    out.textContent = `❌ HTTP ${r.status}`;
+    return;
+  }
+  out.textContent = fmt(r.data);
+  toast(`总计 ${r.data.total || 0} 条`, 'ok');
+}
+window.loadMemoryStats = loadMemoryStats;
+
+// -------- Agents --------
+async function loadAgents() {
+  const r = await call('GET', '/api/agents');
+  const list = document.getElementById('agents-list');
+  const out = document.getElementById('agents-out');
+  const countEl = document.getElementById('agents-count');
+  if (!r.ok) {
+    list.innerHTML = '';
+    out.textContent = `❌ HTTP ${r.status}`;
+    countEl.textContent = '';
+    return;
+  }
+  const data = r.data || {};
+  const agents = Array.isArray(data) ? data : (data.agents || []);
+  countEl.textContent = `共 ${agents.length} 个 agent`;
+  list.innerHTML = agents.length === 0
+    ? '<div class="empty"><div class="ico">🤖</div>没有 agent</div>'
+    : agents.map(a => `
+      <div class="list-item">
+        <div class="ico">🤖</div>
+        <div class="body">
+          <div class="title">${a.name || a.id}</div>
+          <div class="meta">${a.id || ''} · type=${a.type || a.role || 'worker'} · status=${a.status || 'idle'}</div>
+        </div>
+      </div>
+    `).join('');
+  out.textContent = fmt(r.data).slice(0, 600);
+}
+window.loadAgents = loadAgents;
+
+async function loadLoadStats() {
+  const r = await call('GET', '/api/load_stats');
+  document.getElementById('agents-out').textContent = fmt(r.data);
+}
+window.loadLoadStats = loadLoadStats;
+
+// -------- Approval --------
+async function loadHitl(type) {
+  const map = { pending: '/api/hitl/pending', history: '/api/hitl/history?limit=20', stats: '/api/hitl/stats' };
+  const r = await call('GET', map[type]);
+  const out = document.getElementById('hitl-out');
+  const list = document.getElementById('hitl-list');
+  const countEl = document.getElementById('hitl-count');
+  if (!r.ok) {
+    list.innerHTML = '';
+    out.textContent = `❌ HTTP ${r.status}`;
+    countEl.textContent = '';
+    return;
+  }
+  const data = r.data || {};
+  let items = [];
+  if (type === 'pending') items = data.pending || [];
+  else if (type === 'history') items = data.history || [];
+  countEl.textContent = `${type}=${items.length}`;
+  if (type === 'stats') {
+    out.textContent = fmt(data);
+    list.innerHTML = '';
+    return;
+  }
+  list.innerHTML = items.length === 0
+    ? `<div class="empty"><div class="ico">✋</div>没有${type === 'pending' ? '待审批' : '历史'}</div>`
+    : items.map(it => `
+      <div class="list-item">
+        <div class="ico">📋</div>
+        <div class="body">
+          <div class="title">${it.id || it.request_id || ''}</div>
+          <div class="meta">${it.tool || it.action || ''} · ${it.risk || ''} · ${it.created_at || ''}</div>
+        </div>
+        ${type === 'pending' ? `
+          <div class="actions">
+            <button class="mini" onclick="decideHitl('${it.id || it.request_id}', 'approve')">批准</button>
+            <button class="mini" onclick="decideHitl('${it.id || it.request_id}', 'reject')">拒绝</button>
+          </div>
+        ` : ''}
+      </div>
+    `).join('');
+  out.textContent = fmt(r.data).slice(0, 600);
+}
+window.loadHitl = loadHitl;
+
+async function decideHitl(id, decision) {
+  const r = await call('POST', '/api/hitl/decide', { id, decision });
+  if (r.ok) {
+    toast(`已${decision === 'approve' ? '批准' : '拒绝'}`, 'ok');
+    loadHitl('pending');
+  } else {
+    toast('决策失败', 'err');
+  }
+}
+window.decideHitl = decideHitl;
+
+// -------- Policies --------
+async function loadPolicies() {
+  const r = await call('GET', '/api/policies');
+  const list = document.getElementById('policies-list');
+  const out = document.getElementById('policies-out');
+  if (!r.ok) {
+    list.innerHTML = '';
+    out.textContent = `❌ HTTP ${r.status}`;
+    return;
+  }
+  const data = r.data || {};
+  const policies = Array.isArray(data) ? data : (data.policies || []);
+  list.innerHTML = policies.length === 0
+    ? '<div class="empty"><div class="ico">🛡️</div>没有策略</div>'
+    : policies.map(p => `
+      <div class="list-item">
+        <div class="ico">🛡️</div>
+        <div class="body">
+          <div class="title">${p.name || p.id || ''}</div>
+          <div class="meta">${p.tool || ''} · action=${p.action || ''} · risk=${p.risk || ''}</div>
+        </div>
+      </div>
+    `).join('');
+  out.textContent = fmt(r.data).slice(0, 600);
+}
+window.loadPolicies = loadPolicies;
+
+async function setEnforce(enforce) {
+  const r = await call('POST', '/api/permission/enforce', { enforce });
+  const out = document.getElementById('policies-out');
+  if (r.ok) {
+    toast(`强制模式 ${enforce ? '已开启' : '已关闭'}`, 'ok');
+    out.textContent = `✅ ${fmt(r.data)}`;
+  } else {
+    toast('设置失败', 'err');
+    out.textContent = `❌ HTTP ${r.status}\n${fmt(r.data)}`;
+  }
+}
+window.setEnforce = setEnforce;
+
+// -------- Observability --------
+async function loadEvents() {
+  const r = await call('GET', '/api/events?limit=20');
+  const list = document.getElementById('obs-list');
+  const out = document.getElementById('obs-out');
+  const countEl = document.getElementById('obs-count');
+  if (!r.ok) {
+    list.innerHTML = '';
+    out.textContent = `❌ HTTP ${r.status}`;
+    countEl.textContent = '';
+    return;
+  }
+  const data = r.data || {};
+  const events = Array.isArray(data) ? data : (data.events || []);
+  countEl.textContent = `${events.length} 个事件`;
+  list.innerHTML = events.length === 0
+    ? '<div class="empty"><div class="ico">📨</div>暂无事件</div>'
+    : events.slice(0, 30).map(e => `
+      <div class="list-item">
+        <div class="ico">📨</div>
+        <div class="body">
+          <div class="title">${e.type || e.event || e.kind || 'event'}</div>
+          <div class="meta">${e.session_id || ''} · ${e.timestamp || e.created_at || ''}</div>
+        </div>
+      </div>
+    `).join('');
+  out.textContent = fmt(r.data).slice(0, 500);
+}
+window.loadEvents = loadEvents;
+
+async function loadTraces() {
+  const r = await call('GET', '/api/traces?limit=20');
+  const list = document.getElementById('obs-list');
+  const out = document.getElementById('obs-out');
+  const countEl = document.getElementById('obs-count');
+  if (!r.ok) {
+    list.innerHTML = '';
+    out.textContent = `❌ HTTP ${r.status}`;
+    countEl.textContent = '';
+    return;
+  }
+  const data = r.data || {};
+  const traces = Array.isArray(data) ? data : (data.traces || []);
+  countEl.textContent = `${traces.length} 个 trace`;
+  list.innerHTML = traces.length === 0
+    ? '<div class="empty"><div class="ico">🛰</div>暂无 trace</div>'
+    : traces.slice(0, 30).map(t => `
+      <div class="list-item">
+        <div class="ico">🛰</div>
+        <div class="body">
+          <div class="title">${t.name || t.operation || 'span'}</div>
+          <div class="meta">${t.span_id || ''} · ${t.duration_ms || t.duration || 0}ms</div>
+        </div>
+      </div>
+    `).join('');
+  out.textContent = fmt(r.data).slice(0, 500);
+}
+window.loadTraces = loadTraces;
+
+async function loadPrometheus() {
+  const r = await fetch(BASE + '/api/metrics/prometheus').then(x => x.text());
+  document.getElementById('obs-out').textContent = r || '(空响应)';
+  document.getElementById('obs-count').textContent = `${r.length} 字节`;
+}
+window.loadPrometheus = loadPrometheus;
+
+// -------- Prompts --------
+async function loadPrompts(kind) {
+  const path = kind === 'system' ? '/api/prompts' : '/api/user-prompts';
+  const r = await call('GET', path);
+  const list = document.getElementById('prompts-list');
+  const out = document.getElementById('prompts-out');
+  const countEl = document.getElementById('prompts-count');
+  if (!r.ok) {
+    list.innerHTML = '';
+    out.textContent = `❌ HTTP ${r.status}`;
+    countEl.textContent = '';
+    return;
+  }
+  const data = r.data || {};
+  const items = Array.isArray(data) ? data : (data.templates || []);
+  countEl.textContent = `${items.length} 个模板`;
+  list.innerHTML = items.length === 0
+    ? '<div class="empty"><div class="ico">📝</div>暂无模板</div>'
+    : items.map(p => `
+      <details class="list-item" style="cursor:pointer">
+        <summary style="display:flex; gap:10px; align-items:center">
+          <span class="ico">📝</span>
+          <div style="flex:1">
+            <div class="title">${p.name || p.id}</div>
+            <div class="meta">${p.category || ''} · ${p.tags ? p.tags.join(',') : ''}</div>
+          </div>
+        </summary>
+        <pre style="margin-top:10px; padding:10px; background:var(--code-bg); border-radius:6px; font-size:11.5px; white-space:pre-wrap; font-family:'JetBrains Mono',monospace;">${p.content || p.template || ''}</pre>
+      </details>
+    `).join('');
+  out.textContent = fmt(r.data).slice(0, 500);
+}
+window.loadPrompts = loadPrompts;
+
+// -------- API Explorer --------
+async function apiExplorer() {
+  const method = document.getElementById('ex-method').value;
+  const path = document.getElementById('ex-path').value.trim();
+  const bodyStr = document.getElementById('ex-body').value.trim();
+  let body = null;
+  if (bodyStr) {
+    try { body = JSON.parse(bodyStr); }
+    catch { toast('Body JSON 格式错误', 'err'); return; }
+  }
+  const out = document.getElementById('api_explorer-out');
+  out.textContent = `${method} ${path} …`;
+  const r = await call(method, path, body);
+  if (r.ok) {
+    out.innerHTML = `<span class="pass">✅ HTTP ${r.status} ${r.dt}ms</span>\n${fmt(r.data)}`;
+  } else if (r.status === 0) {
+    out.innerHTML = `<span class="fail">❌ 无法连接：${r.error}</span>`;
+  } else {
+    out.innerHTML = `<span class="fail">❌ HTTP ${r.status} ${r.dt}ms</span>\n${fmt(r.data)}`;
+  }
+}
+window.apiExplorer = apiExplorer;
+
+// -------- 一键全量 --------
+const ALL_TESTS = [
+  { method: 'GET', path: '/api/health' },
+  { method: 'GET', path: '/api/models' },
+  { method: 'GET', path: '/api/capabilities' },
+  { method: 'GET', path: '/api/agents' },
+  { method: 'GET', path: '/api/load_stats' },
+  { method: 'GET', path: '/api/policies' },
+  { method: 'GET', path: '/api/hitl/pending' },
+  { method: 'GET', path: '/api/hitl/history?limit=10' },
+  { method: 'GET', path: '/api/hitl/stats' },
+  { method: 'GET', path: '/api/events?limit=10' },
+  { method: 'GET', path: '/api/traces?limit=10' },
+  { method: 'GET', path: '/api/memory/list?limit=10' },
+  { method: 'GET', path: '/api/memory/stats' },
+  { method: 'GET', path: '/api/prompts' },
+  { method: 'GET', path: '/api/user-prompts' },
+  { method: 'POST', path: '/api/permission/enforce', body: { enforce: false } },
+  { method: 'GET', path: '/api/metrics/prometheus' },
+];
+
+async function runAllTests() {
+  const out = document.getElementById('test_all-out');
+  const statsEl = document.getElementById('test_all-stats');
+  const btn = document.querySelector('#panel-test_all .primary');
+  if (btn) btn.disabled = true;
+  statsEl.style.display = 'grid';
+  statsEl.innerHTML = '<div class="stat"><div class="num" style="color:var(--primary)">⏳</div><div class="lbl">运行中…</div></div>';
+  out.textContent = `⏳ 开始跑全套 ${ALL_TESTS.length} 个测试…\n\n`;
+  let pass = 0, fail = 0;
+  const t0 = performance.now();
+  const lines = [];
+  for (let i = 0; i < ALL_TESTS.length; i++) {
+    const t = ALL_TESTS[i];
+    let r;
+    try {
+      // 使用 silent 模式：避免每个请求都重新渲染浮窗（性能关键）
+      r = await call(t.method, t.path, t.body, { silent: true });
+    } catch (e) {
+      r = { ok: false, status: 0, dt: 0, error: String(e) };
+    }
+    const sym = r.ok ? '✅' : (r.status === 0 ? '🔌' : '❌');
+    const cls = r.ok ? 'pass' : (r.status === 0 ? 'warn' : 'fail');
+    lines.push(`<span class="${cls}">${sym}</span> [${r.status || 'ERR'}] ${r.dt}ms  ${t.method} <code>${t.path}</code>`);
+    if (r.ok) pass++; else fail++;
+    // 实时刷新（每 4 个刷一次，避免阻塞）
+    if (i % 4 === 0 || i === ALL_TESTS.length - 1) {
+      out.innerHTML = lines.join('<br>');
+    }
+  }
+  const total = Math.round(performance.now() - t0);
+  statsEl.innerHTML = `
+    <div class="stat"><div class="num">${ALL_TESTS.length}</div><div class="lbl">总数</div></div>
+    <div class="stat"><div class="num" style="color:var(--success)">${pass}</div><div class="lbl">通过</div></div>
+    <div class="stat"><div class="num" style="color:var(--danger)">${fail}</div><div class="lbl">失败</div></div>
+    <div class="stat"><div class="num">${total}ms</div><div class="lbl">总耗时</div></div>
+    <div class="stat"><div class="num">${Math.round(pass / ALL_TESTS.length * 100)}%</div><div class="lbl">通过率</div></div>
+  `;
+  out.innerHTML = lines.join('<br>');
+  // 在浮窗里加一条汇总记录
+  recordTest('RUN', '/_all_tests', { total: ALL_TESTS.length, pass, fail, dt: total },
+    { ok: fail === 0, status: fail === 0 ? 200 : 500, dt: total, data: { summary: '一键全量', pass, fail } });
+  if (btn) btn.disabled = false;
+}
+window.runAllTests = runAllTests;
+</script>
+</body>
+</html>

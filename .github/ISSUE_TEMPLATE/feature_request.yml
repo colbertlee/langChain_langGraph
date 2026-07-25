@@ -1,0 +1,83 @@
+name: Feature Request
+description: Suggest a new feature or improvement
+title: "[Feature]: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      content: |
+        Use this template to propose a new feature.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / Motivation
+      description: What problem does this feature solve?
+      placeholder: |
+        As a [role], I want [feature], so that [benefit].
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: How should this work?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: What other approaches did you consider?
+      placeholder: |
+        - Alternative 1: ...
+        - Alternative 2: ...
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which part would this feature touch?
+      options:
+        - Frontend UI
+        - Backend API
+        - Backend Agent / LLM
+        - Tools / MCP
+        - CI / DevOps
+        - Tests
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: How urgent is this for you?
+      options:
+        - P0 (blocker / critical)
+        - P1 (high)
+        - P2 (medium)
+        - P3 (nice-to-have)
+    validations:
+      required: false
+
+  - type: textarea
+    id: examples
+    attributes:
+      label: Examples / Mockups
+      description: |
+        Paste code snippets, mockups, or links to similar features.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I have searched for similar feature requests
+          required: true
+        - label: I'm willing to submit a PR for this feature
+          required: false

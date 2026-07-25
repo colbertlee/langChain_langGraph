@@ -179,7 +179,14 @@ def handle_system_info(args: Dict[str, Any]) -> str:
     """获取系统信息"""
     import platform
     import psutil
-    
+
+    disk = psutil.disk_usage('/')
+    # psutil 的 namedtuple 在 mock 测试时不一定有 _asdict()，所以手动转 dict
+    if hasattr(disk, "_asdict"):
+        disk_dict = disk._asdict()
+    else:
+        disk_dict = {"total": disk.total, "used": disk.used, "free": disk.free, "percent": disk.percent}
+
     return json.dumps({
         "system": platform.system(),
         "release": platform.release(),
@@ -189,7 +196,7 @@ def handle_system_info(args: Dict[str, Any]) -> str:
         "cpu_count": psutil.cpu_count(),
         "memory_total": psutil.virtual_memory().total,
         "memory_available": psutil.virtual_memory().available,
-        "disk_usage": dict(psutil.disk_usage('/'))
+        "disk_usage": disk_dict
     }, indent=2)
 
 

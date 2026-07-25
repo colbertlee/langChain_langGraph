@@ -1,0 +1,163 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main, master]
+    # 仅当 web_console/** 或 .github/workflows/deploy.yml 改变时才部署
+    paths:
+      - 'web_console/**'
+      - '.github/workflows/deploy.yml'
+      - 'web_console/package.json'
+      - 'web_console/vite.config.ts'
+      - 'web_console/package-lock.json'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deploy environment'
+        required: true
+        type: choice
+        options:
+          - production
+          - preview
+        default: production
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false   # 部署不能被打断
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+  deployments: write
+
+jobs:
+  # ─────────────── 1. 构建 ───────────────
+  build:
+    name: Build for ${{ github.event.inputs.environment || 'production' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+
+      - name: Cache npm
+        uses: actions/cache@v4
+        with:
+          path: web_console/node_modules
+          key: ${{ runner.os }}-npm-${{ hashFiles('web_console/package-lock.json') }}
+
+      - name: Cache Vite prebundle
+        uses: actions.cache@v4
+        with:
+          path: web_console/node_modules/.vite
+          key: ${{ runner.os }}-vite-${{ hashFiles('web_console/package-lock.json', 'web_console/vite.config.ts') }}
+
+      - name: Install
+        working-directory: web_console
+        run: npm ci --no-audit --no-fund
+
+      # ⚠️ 部署必须真实构建（不能用 cache 跳过）
+      - name: Build
+        working-directory: web_console
+        run: npm run build
+
+      # 准备 SPA fallback：所有 404 路由 → index.html
+      - name: Add SPA fallback
+        working-directory: web_console
+        run: |
+          # GitHub Pages 不支持 SPA 自动 fallback，
+          # 我们把 index.html 复制为 404.html，gh-pages 会用它处理未匹配路径
+          cp dist/index.html dist/404.html
+          ls -la dist/
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: web_console/dist
+
+  # ─────────────── 2. 部署到 GitHub Pages ───────────────
+  deploy:
+    name: Deploy to GitHub Pages
+    runs-on: ubuntu-latest
+    needs: build
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  # ─────────────── 3. 部署到 S3（可选，需配置 secrets） ───────────────
+  deploy-s3:
+    name: Deploy to S3 (optional)
+    runs-on: ubuntu-latest
+    needs: build
+    if: env.AWS_S3_BUCKET != ''
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Sync to S3
+        run: |
+          aws s3 sync web_console/dist s3://$AWS_S3_BUCKET --delete --cache-control "public, max-age=31536000, immutable" --exclude "*.html"
+          aws s3 cp web_console/dist/index.html s3://$AWS_S3_BUCKET/index.html --cache-control "no-cache"
+          aws s3 cp web_console/dist/404.html    s3://$AWS_S3_BUCKET/404.html    --cache-control "no-cache"
+
+      - name: Invalidate CloudFront
+        if: env.CLOUDFRONT_DISTRIBUTION_ID != ''
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id $CLOUDFRONT_DISTRIBUTION_ID \
+            --paths "/*"
+        env:
+          AWS_S3_BUCKET: ${{ vars.AWS_S3_BUCKET }}
+          CLOUDFRONT_DISTRIBUTION_ID: ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}
+
+  # ─────────────── 4. 部署通知 ───────────────
+  notify:
+    name: Notify Deploy Success
+    runs-on: ubuntu-latest
+    needs: [deploy]
+    if: success() && (env.SLACK_WEBHOOK_URL != '' || env.DISCORD_WEBHOOK_URL != '')
+    steps:
+      - name: Notify Slack
+        if: env.SLACK_WEBHOOK_URL != ''
+        uses: slackapi/slack-github-action@v1.27.0
+        with:
+          payload: |
+            {
+              "text": "Deployment successful",
+              "blocks": [{
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "🚀 *Deployment successful*\n\n• Commit: `${{ github.sha }}`\n• Branch: `${{ github.ref_name }}`\n• Actor: ${{ github.actor }}\n\n• Pages URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}"
+                }
+              }]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Notify Discord
+        if: env.DISCORD_WEBHOOK_URL != ''
+        run: |
+          curl -sS -X POST "$DISCORD_WEBHOOK_URL" \
+            -H 'Content-Type: application/json' \
+            -d '{
+              "embeds": [{
+                "title": "🚀 Deployment successful",
+                "description": "Commit: `"'"${{ github.sha }}"'"`\nBranch: `"'"${{ github.ref_name }}"'"`\nURL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}",
+                "color": 5814783
+              }]
+            }'
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}

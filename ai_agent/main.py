@@ -1,6 +1,13 @@
 from agent import AIAgent
 import sys
 
+# Force UTF-8 output (Windows cmd defaults to GBK)
+try:
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+except Exception:
+    pass
+
 
 def print_banner():
     banner = """
@@ -51,7 +58,7 @@ def main():
     print("=" * 60)
     
     agent = AIAgent()
-    print(f"✅ Agent 初始化成功，可用工具: {len(agent.get_tools_list())} 个")
+    print(f"[OK] Agent initialized, tools: {len(agent.get_tools_list())}")
     
     while True:
         try:

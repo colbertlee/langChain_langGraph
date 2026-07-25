@@ -1,0 +1,40 @@
+name: Question
+description: Ask a question about usage / behavior
+title: "[Question]: "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      content: |
+        Use this for usage questions, not bugs (use Bug Report) and not features (use Feature Request).
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What would you like to know?
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: What have you already tried? What docs did you read?
+    validations:
+      required: false
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Frontend UI
+        - Backend API
+        - Backend Agent
+        - MCP / Tools
+        - CI / Deployment
+        - Configuration (.env)
+        - General
+    validations:
+      required: true

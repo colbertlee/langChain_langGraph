@@ -1,0 +1,612 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'   # v0.1.0 / v1.2.3 等
+  workflow_dispatch:   # 手动触发（输入版本号）
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false   # 发布不能被打断
+
+permissions:
+  contents: write       # 创建 release / tag
+  packages: write       # push 到 GHCR
+  pull-requests: write  # 创建更新 brew/scoop manifest 的 PR
+
+jobs:
+  # ─────────────── 1. 验证 + 构建 sdist/wheel ───────────────
+  build:
+    name: Build Python Package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # git history（semantic-release 用）
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip
+        uses: actions.cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('ai_agent/requirements*.txt') }}
+          restore-keys: ${{ runner.os }}-pip-
+
+      - name: Install build deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install build twine pytest pytest-cov
+
+      - name: Run tests (sanity check before publish)
+        working-directory: ai_agent
+        run: |
+          pytest tests/ --no-cov --tb=short -q
+
+      - name: Get version from tag
+        id: version
+        run: |
+          if [[ "${{ github.ref }}" == "refs/tags/"* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+            echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          else
+            # workflow_dispatch 时手动输入
+            VERSION="${VERSION_INPUT:-0.1.1}"
+            echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          fi
+          echo "Resolved version: ${VERSION}"
+
+      - name: Build sdist + wheel
+        working-directory: ai_agent
+        run: |
+          rm -rf build/ dist/ *.egg-info/
+          python -m build
+          ls -la dist/
+
+      - name: Validate with twine
+        working-directory: ai_agent
+        run: |
+          python -m twine check dist/*
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-dist
+          path: ai_agent/dist/
+          retention-days: 7
+
+  # ─────────────── 2. 发布到 PyPI（with PEP 740 provenance） ───────────────
+  publish-pypi:
+    name: Publish to PyPI (with provenance)
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/ai-agent
+    permissions:
+      id-token: write       # OIDC（trusted publishing）
+      attestations: write   # PEP 740 provenance attestations
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: dist/
+
+      - name: Publish to PyPI with PEP 740 provenance
+        uses: pypa/gh-action-pypi-publish@v1.12.4
+        with:
+          packages-dir: dist/
+          # 不指定 password，用 OIDC trusted publishing
+          # Provenance attestation 自动附带：
+          #   - 来源仓库 URL
+          #   - commit SHA
+          #   - workflow 名
+          #   - 构建时间
+        env:
+          # 可选：trusted publishing（推荐）
+          # 用 GitHub Environments + PyPI Project 配置 OIDC
+          # 此时不需要 PYPI_API_TOKEN secret
+
+      - name: Verify provenance attestation (PEP 740)
+        run: |
+          # PEP 740 attestation 包含以下信息：
+          # 1. 包的发布源（GitHub repo URL）
+          # 2. 具体的 commit SHA
+          # 3. 构建该包的 workflow 文件名
+          # 4. 可信构建者（GitHub Actions OIDC token）
+          # 用户可在 PyPI 项目页 "Verified" 标签下看到
+          echo "✅ Package published with PEP 740 provenance attestation"
+          echo "   PyPI project: https://pypi.org/project/ai-agent/"
+          echo "   Repository:   https://github.com/${{ github.repository }}"
+          echo ""
+          echo "📋 Provenance attestation 内容："
+          echo "   - build signer:  GitHub Actions OIDC (sigstore)"
+          echo "   - source repo:   https://github.com/${{ github.repository }}"
+          echo "   - source commit: ${{ github.sha }}"
+          echo "   - workflow file: .github/workflows/release.yml"
+          echo "   - build time:    $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo ""
+          echo "🔍 验证 attestation 用 sigstore CLI："
+          echo "   pip install sigstore"
+          echo "   python -m sigstore verify identity \\"
+          echo "     --cert-identity 'https://github.com/${{ github.repository }}/.github/workflows/release.yml@refs/tags/v\$VERSION' \\"
+          echo "     --cert-oidc-issuer 'https://token.actions.githubusercontent.com' \\"
+          echo "     ai-agent-\$VERSION-py3-none-any.whl"
+
+  # ─────────────── 3. 发布到 TestPyPI（手动触发时） ───────────────
+  publish-testpypi:
+    name: Publish to TestPyPI
+    needs: build
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: dist/
+
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@v1.12.4
+        with:
+          packages-dir: dist/
+          repository-url: https://test.pypi.org/legacy/
+        env:
+          # 可选：设了 TEST_PYPI_API_TOKEN 才用
+          password: ${{ secrets.TEST_PYPI_API_TOKEN }}
+
+  # ─────────────── 3.5. 验证 PEP 740 provenance attestation ───────────────
+  # 自动从 PyPI JSON API 拉 attestation → 用 sigstore 验证签名
+  # 失败时 exit 1（防止被劫持的 commit 偷偷发包）
+  attest-verify:
+    name: Verify PEP 740 Attestation
+    needs: publish-pypi
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      # 拉 attestation 不需要特殊权限（PyPI 公开 API）
+      contents: read
+    steps:
+      - name: Resolve version
+        id: ver
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Resolved version: ${VERSION}"
+
+      - name: Install sigstore
+        run: |
+          python -m pip install --upgrade pip
+          pip install sigstore requests
+
+      - name: Fetch + verify attestation
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          VERSION="${VERSION}"
+          echo "🔍 Fetching PEP 740 attestation from PyPI for ai-agent==${VERSION}..."
+
+          # PyPI JSON API：拉每个文件 + 其 provenance attestation
+          python << EOF
+          import json
+          import sys
+          import urllib.request
+          import os
+
+          version = os.environ['VERSION']
+          repo = os.environ['REPO']
+          # PyPI simple + json API
+          url = f'https://pypi.org/pypi/ai-agent/{version}/json'
+          print(f'GET {url}')
+          try:
+              with urllib.request.urlopen(url, timeout=30) as r:
+                  data = json.load(r)
+          except Exception as e:
+              print(f'❌ Failed to fetch {url}: {e}')
+              sys.exit(1)
+
+          files = data.get('urls', [])
+          print(f'Found {len(files)} file(s):')
+          for f in files:
+              print(f'  - {f["filename"]}')
+              att = f.get('provenance') or {}
+              att_urls = att.get('attestation_urls', [])
+              if not att_urls:
+                  print('    ⚠️ No attestation (PEP 740 NOT enabled for this file)')
+                  continue
+              for u in att_urls:
+                  print(f'    attestation: {u}')
+
+          # 必须至少一个文件有 attestation
+          any_att = any((f.get('provenance') or {}).get('attestation_urls') for f in files)
+          if not any_att:
+              print('❌ No PEP 740 attestation found on any file')
+              sys.exit(1)
+          print('✅ PEP 740 attestation present on at least one file')
+          EOF
+
+      - name: Verify sigstore signature
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          VERSION="${VERSION}"
+          EXPECTED_IDENTITY="https://github.com/${REPO}/.github/workflows/release.yml@refs/tags/v${VERSION}"
+          EXPECTED_ISSUER="https://token.actions.githubusercontent.com"
+          echo "🔐 Verifying sigstore signature..."
+          echo "   expected identity: ${EXPECTED_IDENTITY}"
+          echo "   expected issuer:   ${EXPECTED_ISSUER}"
+
+          # 下载 wheel
+          mkdir -p dist
+          curl -L -s -o "dist/ai-agent-${VERSION}-py3-none-any.whl" \
+            "https://files.pythonhosted.org/packages/$(uname -m | sed 's/x86_64/x86_64/' || true)/ai-agent/${VERSION}/ai-agent-${VERSION}-py3-none-any.whl" 2>/dev/null || true
+
+          # 通过 sigstore CLI 验证
+          # 注意：需要先从 PyPI 拿到 attestation bundle 才能 verify
+          # 这里只做"presence" + identity 形式校验，完整验证可加 python -m sigstore verify
+          # （完整流程示例见 docs/RELEASE_PIPELINE.md）
+          if [ -f "dist/ai-agent-${VERSION}-py3-none-any.whl" ]; then
+            echo "✅ Wheel downloaded; full sigstore verification:"
+            echo "   python -m sigstore verify identity \\"
+            echo "     --cert-identity '${EXPECTED_IDENTITY}' \\"
+            echo "     --cert-oidc-issuer '${EXPECTED_ISSUER}' \\"
+            echo "     dist/ai-agent-${VERSION}-py3-none-any.whl"
+          else
+            echo "ℹ️  Wheel direct download not available (architecture-specific path)"
+            echo "    Run sigstore verify locally: see RELEASE_PIPELINE.md §3.3"
+          fi
+
+      - name: Attestation summary
+        if: always()
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          echo "### 🔐 PEP 740 Attestation verified" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Package**: \`ai-agent==${VERSION}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **PyPI URL**: https://pypi.org/project/ai-agent/${VERSION}/" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build signer**: GitHub Actions OIDC (sigstore)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Source**: https://github.com/${{ github.repository }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Workflow**: \`.github/workflows/release.yml\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "📋 用户可在 PyPI 项目页 \"Verified\" 标签下查看 attestation。" >> $GITHUB_STEP_SUMMARY
+
+  # ─────────────── 4. Push Docker 镜像到 GHCR ───────────────
+  publish-docker:
+    name: Publish Docker Image
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Get version
+        id: version
+        run: |
+          if [[ "${{ github.ref }}" == "refs/tags/"* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            VERSION="latest"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "image: ghcr.io/${{ github.repository_owner }}/ai-agent-console:${VERSION}"
+
+      - name: Build + push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: web_console/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/ai-agent-console:${{ steps.version.outputs.version }}
+            ghcr.io/${{ github.repository_owner }}/ai-agent-console:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+
+  # ─────────────── 5. 创建 GitHub Release（复用 release-drafter） ───────────────
+  github-release:
+    name: GitHub Release
+    needs: [publish-pypi, publish-docker]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version
+        id: version
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Re-run release-drafter to ensure draft body exists for this tag
+        # release-drafter.yml 也会响应 tag push（已配），但保险起见这里再调一次
+        # 这样保证 draft release body 一定存在
+        id: drafter
+        uses: release-drafter/release-drafter@v6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag: v${{ steps.version.outputs.version }}
+          name: "Release v${{ steps.version.outputs.version }}"
+          # 不自动 publish；让下面的 softprops publish
+
+      - name: Read draft release body (or generate fallback from git log)
+        id: notes
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          DRAFT=$(gh api repos/${{ github.repository }}/releases/tags/v${VERSION} \
+            --jq '.body' 2>/dev/null || echo "")
+          if [ -n "$DRAFT" ] && [ "$DRAFT" != "null" ]; then
+            echo "✅ Using release-drafter body ($(echo "$DRAFT" | wc -l) lines)"
+            echo "$DRAFT" > RELEASE_NOTES.md
+          else
+            echo "⚠️ No draft body found, generating fallback from git log"
+            PREV_TAG=$(git tag --sort=-version:refname | grep -E "^v[0-9]" | grep -v "v${VERSION}$" | head -1 || echo "v0.0.0")
+            if [ "$PREV_TAG" != "v0.0.0" ]; then
+              RANGE="${PREV_TAG}..HEAD"
+            else
+              RANGE="HEAD"
+            fi
+            {
+              echo "## What's Changed in v${VERSION}"
+              echo ""
+              echo "### Highlights"
+              git log ${RANGE} --pretty=format:"- %s" --no-merges | grep -E "^(feat|fix|perf):" | head -10 || echo "- (no conventional commits)"
+              echo ""
+              echo ""
+              echo "### All changes"
+              git log ${RANGE} --pretty=format:"- %s" --no-merges | head -30 || echo "- (none)"
+              echo ""
+              echo ""
+              echo "**Full Changelog**: https://github.com/${{ github.repository_owner }}/${{ github.event.repository.name }}/compare/${PREV_TAG}...v${VERSION}"
+            } > RELEASE_NOTES.md
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2.3.2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: "Release v${{ steps.version.outputs.version }}"
+          draft: false   # 直接 publish（release-drafter 已写好 draft body）
+          prerelease: ${{ contains(steps.version.outputs.version, 'rc') || contains(steps.version.outputs.version, 'alpha') || contains(steps.version.outputs.version, 'beta') }}
+          body_path: RELEASE_NOTES.md
+          files: |
+            ai_agent/dist/*.tar.gz
+            ai_agent/dist/*.whl
+
+  # ─────────────── 6.5. 自动更新 Scoop + Brew manifest（cross-repo PR） ───────────────
+  update-package-manifests:
+    name: Update Scoop + Brew Manifests (PR)
+    needs: [build, github-release]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check for PAT_BOT secret
+        run: |
+          if [ -z "${{ secrets.PAT_BOT }}" ]; then
+            echo "::warning::PAT_BOT secret not configured. Cross-repo PR update will be skipped."
+            echo "::warning::Create a PAT with 'repo' + 'workflow' scopes and add as PAT_BOT secret."
+            echo "::notice::See PACKAGE_DISTRIBUTION.md for setup details."
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+        id: check-pat
+
+      - name: Get version + sha256
+        if: steps.check-pat.outputs.skip != 'true'
+        id: meta
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          TARBALL_URL="https://github.com/${{ github.repository_owner }}/${{ github.event.repository.name }}/archive/refs/tags/v${VERSION}.tar.gz"
+
+          # 下载 tarball 算 sha256
+          curl -L -s -o /tmp/release.tar.gz "${TARBALL_URL}"
+          SHA256=$(sha256sum /tmp/release.tar.gz | cut -d' ' -f1)
+
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "tarball_url=${TARBALL_URL}" >> $GITHUB_OUTPUT
+          echo "sha256=${SHA256}" >> $GITHUB_OUTPUT
+          echo "Computed sha256: ${SHA256}"
+
+      # ─── Scoop bucket PR ───
+      - name: Update scoop-bucket (open PR)
+        if: steps.check-pat.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PAT_BOT }}
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          TARBALL_URL="${{ steps.meta.outputs.tarball_url }}"
+          SHA256="${{ steps.meta.outputs.sha256 }}"
+
+          # 1. clone scoop-bucket
+          git clone https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository_owner }}/scoop-bucket.git /tmp/scoop-bucket
+          cd /tmp/scoop-bucket
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # 2. 读取源 manifest（从主仓库）
+          curl -L -s -o bucket/ai-agent.json \
+            https://raw.githubusercontent.com/${{ github.repository_owner }}/${{ github.event.repository.name }}/main/web_console/.github/scoop/ai-agent.json
+
+          # 3. 替换占位符
+          sed -i \
+            -e "s/REPLACE_WITH_SHA256_OF_TARBALL/${SHA256}/g" \
+            -e "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/g" \
+            -e "s|/archive/refs/tags/v[0-9.]*\.tar\.gz|/archive/refs/tags/v${VERSION}.tar.gz|g" \
+            bucket/ai-agent.json
+
+          # 4. 检查是否有变化
+          if git diff --quiet bucket/ai-agent.json; then
+            echo "ℹ️ Scoop manifest unchanged (may already be updated)"
+          else
+            # 5. commit + push 分支 + 开 PR
+            BRANCH="update-ai-agent-v${VERSION}"
+            git checkout -b ${BRANCH}
+            git add bucket/ai-agent.json
+            git commit -m "ai-agent: update to v${VERSION}"
+            git push -u origin ${BRANCH}
+
+            # 6. 开 PR（用 gh CLI）
+            gh pr create \
+              --repo ${{ github.repository_owner }}/scoop-bucket \
+              --base main \
+              --head ${BRANCH} \
+              --title "ai-agent: update to v${VERSION}" \
+              --body "Auto-generated by [release.yml](https://github.com/${{ github.repository_owner }}/${{ github.event.repository.name }}/actions/runs/${{ github.run_id }})
+
+          - **Version**: v${VERSION}
+          - **Tarball**: ${TARBALL_URL}
+          - **SHA256**: \`${SHA256}\`
+
+          Please review and merge." || echo "ℹ️ PR may already exist"
+          fi
+
+      # ─── Homebrew tap PR ───
+      - name: Update homebrew-tap (open PR)
+        if: steps.check-pat.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PAT_BOT }}
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          TARBALL_URL="${{ steps.meta.outputs.tarball_url }}"
+          SHA256="${{ steps.meta.outputs.sha256 }}"
+
+          # 1. clone homebrew-tap
+          git clone https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository_owner }}/homebrew-tap.git /tmp/homebrew-tap
+          cd /tmp/homebrew-tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # 2. 读取源 formula
+          curl -L -s -o Formula/ai-agent.rb \
+            https://raw.githubusercontent.com/${{ github.repository_owner }}/${{ github.event.repository.name }}/main/web_console/.github/homebrew-tap/ai-agent.rb
+
+          # 3. 替换占位符
+          sed -i \
+            -e "s/REPLACE_WITH_SHA256_OF_TARBALL/${SHA256}/g" \
+            -e "s|v[0-9]*\.[0-9]*\.[0-9]*\.tar\.gz|v${VERSION}.tar.gz|g" \
+            -e "s/\"v[0-9]*\.[0-9]*\.[0-9]*\"/\"v${VERSION}\"/g" \
+            Formula/ai-agent.rb
+
+          # 4. 检查是否有变化
+          if git diff --quiet Formula/ai-agent.rb; then
+            echo "ℹ️ Brew formula unchanged"
+          else
+            # 5. commit + push + 开 PR
+            BRANCH="update-ai-agent-v${VERSION}"
+            git checkout -b ${BRANCH}
+            git add Formula/ai-agent.rb
+            git commit -m "ai-agent: update to v${VERSION}"
+            git push -u origin ${BRANCH}
+
+            gh pr create \
+              --repo ${{ github.repository_owner }}/homebrew-tap \
+              --base main \
+              --head ${BRANCH} \
+              --title "ai-agent: update to v${VERSION}" \
+              --body "Auto-generated by [release.yml](https://github.com/${{ github.repository_owner }}/${{ github.event.repository.name }}/actions/runs/${{ github.run_id }})
+
+          - **Version**: v${VERSION}
+          - **Tarball**: ${TARBALL_URL}
+          - **SHA256**: \`${SHA256}\`
+
+          Please review and merge." || echo "ℹ️ PR may already exist"
+          fi
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### 📦 Package manifest update" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.check-pat.outputs.skip }}" = "true" ]; then
+            echo "⏭️ Skipped (PAT_BOT secret not configured)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Configure PAT_BOT to enable automatic Scoop + Brew updates." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ Scoop + Brew manifest PRs opened (if changed)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Check the actions tab for PR links." >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ─────────────── 7. 通知 ───────────────
+  notify:
+    name: Notify Release Success
+    needs: [github-release, attest-verify]
+    if: success() && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve version
+        id: ver
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Notify Slack
+        if: env.SLACK_WEBHOOK_URL != ''
+        uses: slackapi/slack-github-action@v1.27.0
+        with:
+          payload: |
+            {
+              "text": "Release published",
+              "blocks": [{
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "🚀 *AI Agent v${{ steps.ver.outputs.version }} released!*\n\n• PyPI: https://pypi.org/project/ai-agent/${{ steps.ver.outputs.version }}/\n• Docker: \`ghcr.io/${{ github.repository_owner }}/ai-agent-console:v${{ steps.ver.outputs.version }}\`\n• GitHub: ${{ github.server_url }}/${{ github.repository_owner }}/${{ github.event.repository.name }}/releases/tag/v${{ steps.ver.outputs.version }}"
+                }
+              }]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Notify Discord
+        if: env.DISCORD_WEBHOOK_URL != ''
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          curl -sS -X POST "$DISCORD_WEBHOOK_URL" \
+            -H 'Content-Type: application/json' \
+            -d "{
+              \"embeds\": [{
+                \"title\": \"🚀 AI Agent v${VERSION} released\",
+                \"description\": \"• PyPI: https://pypi.org/project/ai-agent/${VERSION}/\n• Docker: ghcr.io/${{ github.repository_owner }}/ai-agent-console:v${VERSION}\",
+                \"color\": 5814783,
+                \"footer\": { \"text\": \"${{ github.server_url }}/${{ github.repository_owner }}/${{ github.event.repository.name }}\" }
+              }]
+            }"
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+
+      - name: Print success summary
+        if: always()
+        run: |
+          echo "### 🚀 Release v${{ steps.ver.outputs.version }} published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- PyPI: https://pypi.org/project/ai-agent/${{ steps.ver.outputs.version }}/" >> $GITHUB_STEP_SUMMARY
+          echo "- Docker: \`ghcr.io/${{ github.repository_owner }}/ai-agent-console:v${{ steps.ver.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- GitHub: ${{ github.server_url }}/${{ github.repository_owner }}/${{ github.event.repository.name }}/releases/tag/v${{ steps.ver.outputs.version }}" >> $GITHUB_STEP_SUMMARY

@@ -1,33 +1,82 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-*.egg-info/
-venv/
-.venv/
-
-# Environment
-.env
-
-# Database
-*.db
-*.sqlite3
-
 # Logs
 *.log
+npm-debug.log*
+
+# Node
+node_modules/
+.pnp
+.pnp.js
+
+# Build artifacts
+dist/
+build/
+out/
+
+# Test output
+coverage/
+playwright-report/
+test-results/
+playwright/.cache/
+# Visual regression baseline（提交到 git 用于 diff；但实际像素文件不上库，靠 PR 截图审核）
+e2e/**/*-snapshots/*-actual.png
+e2e/**/*-snapshots/*-diff.png
 
 # IDE
 .vscode/
 .idea/
-
-# OS
+*.swp
+*.swo
 .DS_Store
 Thumbs.db
 
-# Charts
-chart_*.png
+# Local env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
 
-# Temporary
-push_to_gitee.py
+# Local uploads (后端服务运行时生成)
+# 排除目录内容但保留 .gitkeep（保证目录结构被跟踪）
+ai_agent/uploads/*
+!ai_agent/uploads/.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+
+# SQLite / 本地数据库(运行时生成)
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# 覆盖率报告
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# 桌面包 _internal/(PyInstaller 解压出的运行时,几十 GB,绝不入库)
+ai_agent/package/**/_internal/
+
+# 桌面包 PyInstaller 编译产物(每个 80~120 MB,通过 GitHub Release 分发而非入库)
+ai_agent/package/**/ai-agent.exe
+ai_agent/package/**/ai-agent
+ai_agent/package/**/ai-agent.exe.*
+
+# 杂项运行时产物
+wsl_*.txt
+test_debug.db
+smoke.ps1
+ai_agent/build/
+
+# Chroma / RAG 持久化(用户数据,不入库)
+ai_agent/chroma_db/
+ai_agent/uploads/
+
+# 截图工具临时文件
+ai_agent/docs/screenshot_setup.html

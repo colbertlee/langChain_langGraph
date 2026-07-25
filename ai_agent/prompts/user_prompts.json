@@ -1,0 +1,92 @@
+{
+  "active_versions": {
+    "default": "2.6.0"
+  },
+  "templates": {
+    "default": {
+      "1.0.0": {
+        "name": "default",
+        "version": "1.0.0",
+        "author": "system",
+        "changelog": "基础透传模板，与旧 _build_enhanced_input 的行为一致。",
+        "structure": "user_only",
+        "intro_template": "",
+        "few_shots": [],
+        "context_injection": "off",
+        "security_rewrite": {
+          "enabled": false,
+          "redact_patterns": [],
+          "strip_injection_markers": true,
+          "max_length": 4000
+        },
+        "variables": [],
+        "created_at": 1784850625.728097
+      },
+      "2.0.0": {
+        "name": "default",
+        "version": "2.0.0",
+        "author": "system",
+        "changelog": "阶段 B：引入 few-shot + context 注入位 + 安全重写。",
+        "structure": "system_first",
+        "intro_template": "",
+        "few_shots": [
+          {
+            "role": "user",
+            "content": "你好"
+          },
+          {
+            "role": "assistant",
+            "content": "你好！我是 AI 助手，可以帮你查资料、写代码、做数据分析。请告诉我你需要什么。"
+          },
+          {
+            "role": "user",
+            "content": "帮我把 sales.csv 转成 parquet"
+          },
+          {
+            "role": "assistant",
+            "content": "好的，我先看一下文件结构，然后用工具完成转换。"
+          }
+        ],
+        "context_injection": "before_user",
+        "security_rewrite": {
+          "enabled": true,
+          "redact_patterns": [],
+          "strip_injection_markers": true,
+          "max_length": 4000
+        },
+        "variables": [
+          "context",
+          "user_input"
+        ],
+        "created_at": 1784850625.7281024
+      },
+      "2.6.0": {
+        "name": "default",
+        "version": "2.6.0",
+        "author": "user",
+        "changelog": "",
+        "structure": "system_first",
+        "intro_template": "",
+        "few_shots": [
+          {
+            "role": "user",
+            "content": "alpha"
+          },
+          {
+            "role": "assistant",
+            "content": "beta"
+          }
+        ],
+        "context_injection": "after_user",
+        "security_rewrite": {
+          "enabled": true,
+          "redact_patterns": [],
+          "strip_injection_markers": true,
+          "max_length": 2000
+        },
+        "variables": [],
+        "created_at": 1784881495.3084216
+      }
+    }
+  }
+}

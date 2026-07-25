@@ -1,0 +1,48 @@
+# CODEOWNERS — 自动 review 分配
+# 语法：pattern @owner1 @owner2
+# 最后一个匹配的行生效。
+# 详细：https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# ─────────────── 默认 owner（所有文件） ───────────────
+*       @colbertlee
+
+# ─────────────── 后端核心（高敏感） ───────────────
+/ai_agent/agent.py          @colbertlee
+/ai_agent/api.py            @colbertlee
+/ai_agent/web_ui.py         @colbertlee
+/ai_agent/security.py       @colbertlee
+/ai_agent/config.py         @colbertlee
+/ai_agent/tools.py          @colbertlee
+/ai_agent/llm_reliability.py @colbertlee
+
+# ─────────────── 后端 MCP / 集成 ───────────────
+/ai_agent/mcp_server.py     @colbertlee
+/ai_agent/mcp_tools.py      @colbertlee
+/ai_agent/github_tools.py   @colbertlee
+/ai_agent/gitee_tools.py    @colbertlee
+
+# ─────────────── 后端数据层 ───────────────
+/ai_agent/context_db.py     @colbertlee
+/ai_agent/context_manager.py @colbertlee
+/ai_agent/memory.py         @colbertlee
+/ai_agent/memory_store.py   @colbertlee
+/ai_agent/state_manager.py  @colbertlee
+
+# ─────────────── 前端核心 ───────────────
+/web_console/src/hooks/     @colbertlee
+/web_console/src/stores/    @colbertlee
+/web_console/src/lib/api.ts @colbertlee
+/web_console/src/components/assistant-ui/thread.tsx @colbertlee
+
+# ─────────────── CI / DevOps ───────────────
+/.github/workflows/         @colbertlee
+/.github/CODEOWNERS         @colbertlee
+/.github/dependabot.yml     @colbertlee
+/.github/release-drafter.yml @colbertlee
+
+# ─────────────── 文档（多人可 review） ───────────────
+# （默认 owner 已是 @colbertlee；这里留空让所有改 docs 的人都可 review）
+
+# ─────────────── Dependabot 机器人自动 PR ───────────────
+# dependabot 提交时这些 owner 不被强制 @ mention（避免噪音）
+# 但仍是 reviewer pool 之一

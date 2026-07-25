@@ -1,0 +1,80 @@
+{
+  "mcp_servers": {
+    "ai-agent": {
+      "name": "AI Agent MCP Server",
+      "version": "1.0.0",
+      "enabled": true,
+      "description": "AI Agent 内置 MCP 服务器"
+    },
+    "github": {
+      "name": "GitHub MCP Server",
+      "version": "latest",
+      "enabled": true,
+      "description": "GitHub API 集成 - 仓库、Issue、PR 管理"
+    },
+    "brave-search": {
+      "name": "Brave Search MCP Server",
+      "version": "latest",
+      "enabled": false,
+      "description": "免费网络搜索 API"
+    }
+  },
+  "tools": {
+    "builtin": {
+      "enabled": true,
+      "description": "内置工具",
+      "tools": ["file", "web", "system", "development", "data", "utility"]
+    }
+  },
+  "external_servers": {
+    "github": {
+      "enabled": true,
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}"
+      },
+      "description": "GitHub API 集成"
+    },
+    "filesystem": {
+      "enabled": false,
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "./"],
+      "description": "本地文件系统访问"
+    },
+    "brave-search": {
+      "enabled": false,
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+      "env": {
+        "BRAVE_SEARCH_API_KEY": "${BRAVE_SEARCH_API_KEY}"
+      },
+      "description": "Brave 搜索 API"
+    },
+    "slack": {
+      "enabled": false,
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-slack"],
+      "env": {
+        "SLACK_BOT_TOKEN": "",
+        "SLACK_TEAM_ID": ""
+      },
+      "description": "Slack 消息集成"
+    },
+    "sqlite": {
+      "enabled": false,
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-sqlite"],
+      "env": {
+        "DATABASE_PATH": "./data.db"
+      },
+      "description": "SQLite 数据库访问"
+    }
+  },
+  "security": {
+    "allowed_paths": ["./", "./data/", "./output/"],
+    "denied_paths": ["../", "/etc/", "/root/", "/home/"],
+    "max_file_size": 10485760,
+    "timeout_seconds": 30
+  }
+}

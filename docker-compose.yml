@@ -1,0 +1,100 @@
+# docker-compose.yml — 一键起 AI Agent Console 全栈
+#
+# 用法：
+#   docker compose up -d --build    # 构建并启动
+#   docker compose down             # 停止
+#   docker compose logs -f backend  # 看后端日志
+#   docker compose exec backend sh  # 进后端容器调试
+#
+# 端口：
+#   - 8000: FastAPI (web_ui.py) + 静态前端（dist/）
+#   - 5173: 前端 dev server（开发模式，独立服务）
+#
+# 数据持久化：
+#   - ai_agent_data: sqlite / 上传文件 / memory store
+#
+# 需要的 env（从 .env 读，没有就用 docker-compose 内置的 dummy）：
+#   - OPENAI_API_KEY
+#   - ANTHROPIC_API_KEY (可选)
+#   - DASHSCOPE_API_KEY (可选)
+
+name: ai-agent-console
+
+services:
+  # ─────────────── 后端（FastAPI + 前端 dist） ───────────────
+  backend:
+    build:
+      context: .
+      dockerfile: web_console/Dockerfile
+    image: ai-agent-console:latest
+    container_name: ai-agent-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # LLM 凭据从 .env 读，没有就走 dummy
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-sk-dummy-for-local-dev}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+      SERPAPI_API_KEY: ${SERPAPI_API_KEY:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - ai_agent_data:/app/data
+      - ai_agent_uploads:/app/ai_agent/uploads
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ─────────────── 前端 dev server（可选） ───────────────
+  # 平时不需要；只有改前端代码并想 hot reload 时用：
+  #   docker compose --profile dev up frontend-dev
+  frontend-dev:
+    image: node:20-alpine
+    container_name: ai-agent-frontend-dev
+    profiles: ["dev"]
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 5173"
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./web_console:/app
+      - frontend_dev_node_modules:/app/node_modules
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  # ─────────────── E2E 测试 runner ───────────────
+  # 用 Playwright 跑端到端测试（一次性）：
+  #   docker compose --profile test run --rm e2e
+  e2e:
+    image: mcr.microsoft.com/playwright:v1.49.0-jammy
+    container_name: ai-agent-e2e
+    profiles: ["test"]
+    working_dir: /app/web_console
+    command: sh -c "npm install && npx playwright test --reporter=list,html"
+    volumes:
+      - ./web_console:/app/web_console
+      - frontend_dev_node_modules:/app/web_console/node_modules
+    environment:
+      - E2E_BASE_URL=http://backend:8000
+      - CI=1
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  ai_agent_data:
+    driver: local
+  ai_agent_uploads:
+    driver: local
+  frontend_dev_node_modules:
+    driver: local
+
+networks:
+  default:
+    name: ai-agent-network

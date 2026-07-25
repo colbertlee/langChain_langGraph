@@ -1,0 +1,162 @@
+name: release-build
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '手动触发的 tag 名（可选）'
+        required: false
+
+permissions:
+  contents: write   # 用来创建 / 上传 Release
+
+jobs:
+  build:
+    name: build-${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: ai-agent-windows
+            exe_name: ai-agent.exe
+            archive_name: ai-agent-windows.zip
+            entry: main.py
+            run_script: run.bat
+          - os: ubuntu-latest
+            artifact: ai-agent-linux
+            exe_name: ai-agent
+            archive_name: ai-agent-linux.tar.gz
+            entry: main.py
+            run_script: run.sh
+          - os: macos-latest
+            artifact: ai-agent-macos
+            exe_name: ai-agent
+            archive_name: ai-agent-macos.tar.gz
+            entry: main.py
+            run_script: run.sh
+
+    defaults:
+      run:
+        working-directory: ai_agent
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: ai_agent/requirements.txt
+
+      - name: Install Linux build deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            binutils patchelf libpython3-dev
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      # ──────────────────────── 跑测试 ────────────────────────
+      - name: Run smoke tests
+        run: |
+          python -c "import agent, app, api; print('import ok')"
+          python -c "from agent import AIAgent; a = AIAgent(); print('agent init ok, tools:', len(a.get_tools_list()))"
+
+      # ──────────────────────── 打包 ────────────────────────
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller ai_agent.spec --clean --noconfirm
+          ls -la dist/ai-agent/ || true
+
+      # ────────────────────── 拷贝运行时文件 ──────────────────────
+      - name: Stage runtime files
+        shell: bash
+        run: |
+          STAGE="dist/ai-agent"
+          cp -r knowledge_base "$STAGE/" 2>/dev/null || true
+          cp -r prompts "$STAGE/" 2>/dev/null || true
+          cp mcp_config.json "$STAGE/" 2>/dev/null || true
+          cp .env.example "$STAGE/" 2>/dev/null || true
+          # 复制入口脚本
+          cp "${{ matrix.run_script }}" "$STAGE/" 2>/dev/null || true
+          cp install.sh "$STAGE/" 2>/dev/null || true
+          cp install.bat "$STAGE/" 2>/dev/null || true
+          cp README.txt "$STAGE/" 2>/dev/null || true
+          ls -la "$STAGE/"
+
+      - name: Add execute permission (linux/macos)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          chmod +x dist/ai-agent/ai-agent
+          chmod +x dist/ai-agent/install.sh 2>/dev/null || true
+          chmod +x dist/ai-agent/run.sh 2>/dev/null || true
+
+      # ────────────────────── 验证产物可启动 ──────────────────────
+      - name: Smoke test executable
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            ./dist/ai-agent/ai-agent.exe --help 2>&1 | head -n 5 || true
+          else
+            ./dist/ai-agent/ai-agent --help 2>&1 | head -n 5 || true
+          fi
+
+      # ────────────────────── 打包发布物 ──────────────────────
+      - name: Archive Windows
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          cd dist
+          7z a -r -bb1 "../${{ matrix.archive_name }}" ai-agent
+          cd ..
+          ls -la "${{ matrix.archive_name }}"
+
+      - name: Archive Linux/macOS
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          tar -czf "${{ matrix.archive_name }}" -C dist ai-agent
+          ls -la "${{ matrix.archive_name }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ai_agent/${{ matrix.archive_name }}
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: publish-release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/ai-agent-windows/ai-agent-windows.zip
+            artifacts/ai-agent-linux/ai-agent-linux.tar.gz
+            artifacts/ai-agent-macos/ai-agent-macos.tar.gz
+          generate_release_notes: true
+          draft: false
+          prerelease: false

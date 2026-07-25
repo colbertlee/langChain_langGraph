@@ -1,0 +1,29 @@
+{
+  "version": "0.1.0",
+  "description": "AI Agent Console — LangChain + LangGraph + MCP backend with React UI",
+  "homepage": "https://github.com/colbertlee/langChain_langGraph",
+  "license": "MIT",
+  "depends": "python@3.11",
+  "url": "https://github.com/colbertlee/langChain_langGraph/archive/refs/tags/v0.1.0.tar.gz",
+  "hash": "REPLACE_WITH_SHA256_OF_TARBALL",
+  "bin": [
+    ["py", "-m", "ai_agent.web_ui", "ai-agent"]
+  ],
+  "post_install": [
+    "pip install -e .",
+    "pip install pytest pytest-asyncio pytest-cov ruff argcomplete",
+    "register-python-argcomplete ai-agent-test >> $bash_profile 2>/dev/null || true",
+    "register-python-argcomplete ai-agent-lint >> $bash_profile 2>/dev/null || true",
+    "register-python-argcomplete ai-agent-format >> $bash_profile 2>/dev/null || true"
+  ],
+  "checkver": {
+    "url": "https://github.com/colbertlee/langChain_langGraph/releases.atom",
+    "regex": "/releases/tag/v([\\d.]+)\""
+  },
+  "autoupdate": {
+    "url": "https://github.com/colbertlee/langChain_langGraph/archive/refs/tags/v$version.tar.gz",
+    "hash": {
+      "url": "$url"
+    }
+  }
+}

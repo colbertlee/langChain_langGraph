@@ -6,6 +6,12 @@ import json
 
 from langchain_core.tools import tool
 
+from security import (
+    safe_eval_expression,
+    validate_safe_path,
+    get_security_instance,
+)
+
 _rag_instance = None
 
 
@@ -29,25 +35,20 @@ def get_current_time() -> str:
 def calculate(expression: str) -> Union[float, int, str]:
     """
     数学计算工具
-    
+
     参数:
         expression: 数学表达式，支持 +、-、*、/、^、sqrt、sin、cos、tan 等
+
+    安全要点：
+        - 使用 AST 白名单求值（security.safe_eval_expression），不允许 dunder / 属性 / 任意函数调用；
+        - 支持 ^ 作为幂运算的语法糖。
     """
     try:
-        expression = expression.replace("^", "**")
-        result = eval(expression, {"__builtins__": None}, {
-            "sin": math.sin,
-            "cos": math.cos,
-            "tan": math.tan,
-            "sqrt": math.sqrt,
-            "abs": abs,
-            "log": math.log,
-            "log10": math.log10,
-            "exp": math.exp,
-            "pi": math.pi,
-            "e": math.e,
-        })
+        normalized = expression.replace("^", "**")
+        result = safe_eval_expression(normalized)
         return result
+    except ValueError as e:
+        return f"计算错误: {str(e)}"
     except Exception as e:
         return f"计算错误: {str(e)}"
 
@@ -131,13 +132,16 @@ def load_knowledge_base(file_path: str) -> str:
 def read_file(file_path: str) -> str:
     """
     读取文件内容
-    
+
     参数:
-        file_path: 文件路径（相对路径，不允许访问上级目录）
+        file_path: 文件路径（相对路径，不允许访问上级目录 / 绝对路径 / 敏感位置）
+
+    安全：使用 security.validate_safe_path，禁止 .env / .git / .ssh / node_modules 等敏感路径
     """
-    if ".." in file_path or file_path.startswith("/"):
-        return "❌ 不允许访问上级目录或绝对路径"
-    
+    ok, reason = validate_safe_path(file_path, operation="read")
+    if not ok:
+        return f"❌ {reason}"
+
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             content = f.read()
@@ -156,15 +160,16 @@ def read_file(file_path: str) -> str:
 def write_file(file_path: str, content: str, append: bool = False) -> str:
     """
     写入文件内容
-    
+
     参数:
-        file_path: 文件路径（相对路径，不允许访问上级目录）
+        file_path: 文件路径（相对路径）
         content: 要写入的内容
         append: 是否追加写入（默认False）
     """
-    if ".." in file_path or file_path.startswith("/"):
-        return "❌ 不允许访问上级目录或绝对路径"
-    
+    ok, reason = validate_safe_path(file_path, operation="write")
+    if not ok:
+        return f"❌ {reason}"
+
     try:
         mode = 'a' if append else 'w'
         with open(file_path, mode, encoding='utf-8') as f:
@@ -178,16 +183,46 @@ def write_file(file_path: str, content: str, append: bool = False) -> str:
 
 
 @tool
+def delete_file(file_path: str) -> str:
+    """
+    删除文件（谨慎使用）
+
+    参数:
+        file_path: 待删除文件路径（相对路径）
+
+    安全：使用 validate_safe_path 拦截敏感路径（.env / .git / .ssh / node_modules 等）；
+    不会删除根目录或空目录条目。
+    """
+    ok, reason = validate_safe_path(file_path, operation="delete")
+    if not ok:
+        return f"❌ {reason}"
+
+    if not os.path.exists(file_path):
+        return f"❌ 文件不存在: {file_path}"
+    if os.path.isdir(file_path):
+        return f"❌ 不允许删除目录: {file_path}"
+
+    try:
+        os.remove(file_path)
+        return f"✅ 文件 {file_path} 已删除"
+    except PermissionError:
+        return f"❌ 没有权限删除文件: {file_path}"
+    except Exception as e:
+        return f"❌ 删除错误: {str(e)}"
+
+
+@tool
 def list_files(directory: str = ".") -> str:
     """
     列出目录下的文件
-    
+
     参数:
         directory: 目录路径（默认当前目录）
     """
-    if ".." in directory or directory.startswith("/"):
-        return "❌ 不允许访问上级目录或绝对路径"
-    
+    ok, reason = validate_safe_path(directory, operation="read")
+    if not ok:
+        return f"❌ {reason}"
+
     try:
         files = os.listdir(directory)
         if not files:
@@ -205,61 +240,18 @@ def list_files(directory: str = ".") -> str:
 def run_code(code: str) -> str:
     """
     执行简单的 Python 代码（仅安全表达式）
-    
+
     参数:
-        code: Python 表达式（不允许 import、exec、eval、os、subprocess 等危险操作）
+        code: Python 表达式（不允许 import、exec、eval、属性访问等危险操作）
+
+    安全：使用 AST 白名单求值（security.safe_eval_expression）。
+    与 calculate 不同：run_code 接受任意数学表达式并把结果当字符串返回。
     """
-    import ast
-    
-    dangerous_patterns = ['import', 'exec', 'eval', 'open', '__import__', '__builtins__']
-    
-    for pattern in dangerous_patterns:
-        if pattern in code:
-            return f"❌ 禁止执行包含 '{pattern}' 的代码"
-    
     try:
-        tree = ast.parse(code, mode='eval')
-        
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import) or isinstance(node, ast.ImportFrom):
-                return "❌ 禁止执行 import 语句"
-            if isinstance(node, ast.Call):
-                if isinstance(node.func, ast.Name):
-                    if node.func.id in ['exec', 'eval', 'open', '__import__']:
-                        return f"❌ 禁止调用 '{node.func.id}' 函数"
-                elif isinstance(node.func, ast.Attribute):
-                    attr_chain = []
-                    current = node.func
-                    while isinstance(current, ast.Attribute):
-                        attr_chain.insert(0, current.attr)
-                        current = current.value
-                    if isinstance(current, ast.Name):
-                        attr_chain.insert(0, current.id)
-                    full_name = '.'.join(attr_chain)
-                    if full_name in ['os.system', 'os.popen', 'subprocess.call', 
-                                     'subprocess.run', 'subprocess.Popen']:
-                        return f"❌ 禁止调用 '{full_name}'"
-        
-        result = eval(code, {"__builtins__": None}, {
-            "sin": math.sin,
-            "cos": math.cos,
-            "tan": math.tan,
-            "sqrt": math.sqrt,
-            "abs": abs,
-            "log": math.log,
-            "log10": math.log10,
-            "exp": math.exp,
-            "pi": math.pi,
-            "e": math.e,
-            "sum": sum,
-            "max": max,
-            "min": min,
-            "pow": pow,
-            "round": round,
-            "len": len,
-            "range": range,
-        })
+        result = safe_eval_expression(code)
         return f"✅ 执行结果: {result}"
+    except ValueError as e:
+        return f"❌ {e}"
     except SyntaxError:
         return "❌ 语法错误"
     except Exception as e:
@@ -610,11 +602,15 @@ def get_etf_history(etf_code: str, days: int = 30) -> str:
                     f"({'+' if change_pct >= 0 else ''}{change_pct:.2f}%)"
                 )
             
-            return f"""📊 {etf_code} 最近 {len(results)} 天历史行情
-{'─' * 60}
-{'\n'.join(results)}
-{'─' * 60}
-💡 如需查看完整走势图，请使用 generate_chart 工具生成图表"""
+            divider = '─' * 60
+            joined_results = '\n'.join(results)
+            return (
+                f"📊 {etf_code} 最近 {len(results)} 天历史行情\n"
+                f"{divider}\n"
+                f"{joined_results}\n"
+                f"{divider}\n"
+                f"💡 如需查看完整走势图，请使用 generate_chart 工具生成图表"
+            )
         return f"❌ 无法获取 ETF {etf_code} 的历史数据"
         
     except ImportError:
@@ -856,13 +852,14 @@ def etf_analysis(etf_code: str, days: int = 30) -> str:
 
 def get_all_tools():
     return [
-        get_current_time, 
-        calculate, 
-        search_web, 
-        query_knowledge_base, 
+        get_current_time,
+        calculate,
+        search_web,
+        query_knowledge_base,
         load_knowledge_base,
         read_file,
         write_file,
+        delete_file,
         list_files,
         run_code,
         get_weather,

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "release-type": "python",
+  "bump-minor-pre-major": true,
+  "bump-patch-for-minor-pre-major": false,
+  "include-component-in-tag": false,
+  "changelog-host": "https://github.com/colbertlee/langChain_langGraph",
+  "changelog-sections": [
+    { "type": "feat",     "section": "✨ Features" },
+    { "type": "fix",      "section": "🐛 Bug Fixes" },
+    { "type": "perf",     "section": "⚡ Performance" },
+    { "type": "revert",   "section": "⏪ Reverts" },
+    { "type": "docs",     "section": "📝 Documentation" },
+    { "type": "refactor", "section": "♻️ Code Refactoring" },
+    { "type": "test",     "section": "🧪 Tests" },
+    { "type": "build",    "section": "📦 Build System" },
+    { "type": "ci",       "section": "👷 CI/CD" },
+    { "type": "chore",    "section": "🔧 Maintenance" },
+    { "type": "feat!",    "section": "🚨 BREAKING CHANGES" },
+    { "type": "fix!",     "section": "🚨 BREAKING CHANGES" }
+  ],
+  "packages": {
+    "ai_agent": {
+      "package-name": "ai-agent",
+      "changelog-path": "CHANGELOG.md"
+    }
+  }
+}

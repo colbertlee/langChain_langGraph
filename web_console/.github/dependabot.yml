@@ -1,0 +1,104 @@
+# Dependabot 配置
+# 用途：自动检查依赖更新（npm / pip / GitHub Actions）并开 PR。
+# 与 weekly-upgrades.yml 互补：Dependabot 频率高 + 多种生态；weekly-upgrades 重在 major 巡检。
+version: 2
+updates:
+  # ─────────────── 前端 npm ───────────────
+  - package-ecosystem: 'npm'
+    directory: '/web_console'
+    schedule:
+      interval: 'weekly'
+      day: 'tuesday'
+      time: '09:00'
+    open-pull-requests-limit: 8
+    versioning-strategy: increase
+    labels:
+      - 'dependencies'
+      - 'upgrade'
+    commit-message:
+      prefix: 'chore(deps)'
+      prefix-development: 'chore(deps-dev)'
+      include: 'scope'
+    # 自动分组：把所有 patch/minor 合并到一个 PR，major 单独
+    groups:
+      production-dependencies:
+        dependency-type: 'production'
+        update-types:
+          - 'minor'
+          - 'patch'
+      production-major:
+        dependency-type: 'production'
+        update-types:
+          - 'major'
+      development-dependencies:
+        dependency-type: 'development'
+        update-types:
+          - 'minor'
+          - 'patch'
+      development-major:
+        dependency-type: 'development'
+        update-types:
+          - 'major'
+    # 排除频繁更新的包
+    ignore:
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
+        # major 单独开 PR，不和 minor 混
+    # 自动 assign reviewer
+    reviewers:
+      - 'colbertlee'
+    # 不让 weekly-upgrades 同时开 major PR
+    # （已在 weekly-upgrades.yml 用 OPEN_ISSUE_ON_MAJOR=true 协调）
+
+  # ─────────────── 后端 Python ───────────────
+  - package-ecosystem: 'pip'
+    directory: '/ai_agent'
+    schedule:
+      interval: 'weekly'
+      day: 'wednesday'
+      time: '09:00'
+    open-pull-requests-limit: 5
+    labels:
+      - 'dependencies'
+      - 'backend'
+      - 'upgrade'
+    commit-message:
+      prefix: 'chore(pip)'
+      include: 'scope'
+    groups:
+      python-prod:
+        dependency-type: 'production'
+      python-dev:
+        dependency-type: 'development'
+
+  # ─────────────── GitHub Actions ───────────────
+  - package-ecosystem: 'github-actions'
+    directory: '/'
+    schedule:
+      interval: 'weekly'
+      day: 'monday'
+      time: '09:00'
+    open-pull-requests-limit: 3
+    labels:
+      - 'dependencies'
+      - 'ci'
+    commit-message:
+      prefix: 'ci(actions)'
+    groups:
+      actions:
+        patterns:
+          - '*'
+
+  # ─────────────── Docker（未来用） ───────────────
+  # - package-ecosystem: 'docker'
+  #   directory: '/'
+  #   schedule:
+  #     interval: 'weekly'
+
+# ─────────────── 行为调优 ───────────────
+# 当 Dependabot PR 提交时自动触发 GitHub Actions
+# （这是默认行为，但显式声明让意图清晰）
+# Dependabot secrets 继承自 repo；不会泄露到 fork
+
+# 让 weekly-upgrades 检查的 major 升级由 Dependabot 自动开 PR 而不是发 issue
+#（避免重复通知 — Dependabot PR 比 issue 更容易处理）

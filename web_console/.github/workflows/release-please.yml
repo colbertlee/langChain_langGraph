@@ -1,0 +1,73 @@
+name: Release Please (Manifest)
+
+# Release Please 自动从 conventional commits 算 next version + 开 release PR。
+# 与 release-drafter.yml 互补：
+#   - release-please：自动开 PR（推荐路径，commit → PR → merge → tag → release.yml publish）
+#   - release-drafter：只维护 draft release body（手动 publish）
+#
+# 推荐用法：
+#   1. 开发者按 conventional commits 提交（feat:/fix:/perf: 等）
+#   2. merge PR 到 main
+#   3. 本 workflow 自动开（或更新）"Release PR"
+#   4. 维护者 review Release PR → merge
+#   5. merge 触发 release.yml → 自动 publish PyPI / Docker / GH Release / Notify
+#
+# 注意：release-please merge 后会：
+#   - 更新 pyproject.toml 的 version
+#   - 在 ai_agent/CHANGELOG.md 追加新版本 section
+#   - commit "chore(main): release X.Y.Z"（不带 [skip ci]，会触发 backend-ci.yml）
+#   - 创建 git tag vX.Y.Z
+#   - 创建 GitHub Release（draft: false，所以立刻 publish）
+#
+# 但本项目的 release.yml 是 push tag 触发的，所以会被触发。
+# 如不想重复触发：把本 workflow 设为 draft: true，然后让 release.yml 自己 publish。
+# 当前选择：立刻 publish Release（draft: false），用户也能直接看。
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: write       # 创建/更新 release commit + tag
+  pull-requests: write  # 开 PR
+  issues: write         # release-please 自动管理 issue 引用
+
+concurrency:
+  group: release-please-${{ github.ref }}
+  cancel-in-progress: false   # release-please 不能被打断
+
+jobs:
+  release-please:
+    name: Release Please
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          # manifest 模式：从 .github/release-please-config.json 读配置
+          # 不要传 release-type / package-name（manifest 已有）
+          config-file: .github/release-please-config.json
+          # manifest 文件路径（默认 .release-please-manifest.json）
+          manifest-file: .release-please-manifest.json
+          # 立刻 publish GitHub Release（不要 draft）
+          # draft: false
+          # 创建独立 PR（每个 package 一个；我们只有一个 ai_agent，效果一样）
+          separate-pull-requests: false
+          # 项目默认分支是 master；release-please 找 PR base branch 时用它
+          default-branch: master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Print summary
+        if: always()
+        run: |
+          echo "### 📋 Release Please result" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Release PR**: ${{ steps.release.outputs.release-url }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag**: ${{ steps.release.outputs.tag-name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: ${{ steps.release.outputs.major-version }}.${{ steps.release.outputs.minor-version }}.${{ steps.release.outputs.patch-version }}" >> $GITHUB_STEP_SUMMARY
+          if [ -n "${{ steps.release.outputs.release-url }}" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "👉 Review and merge the Release PR to trigger release.yml (PyPI / Docker / GH Release)." >> $GITHUB_STEP_SUMMARY
+          fi

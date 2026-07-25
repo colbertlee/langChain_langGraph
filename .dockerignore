@@ -1,0 +1,27 @@
+# 排除大文件和敏感信息
+**/node_modules
+**/dist
+**/__pycache__
+**/.pytest_cache
+**/htmlcov
+**/coverage.xml
+**/.venv
+**/.venv/**
+**/venv
+**/venv/**
+**/.git
+**/.git/**
+**/.claude
+**/.idea
+**/.vscode
+
+# 不需要上传的运行时产物
+ai_agent/uploads/*
+!ai_agent/uploads/.gitkeep
+**/*.log
+
+# 测试 / 文档（保留）
+tests/**
+docs/**
+*.md
+LICENSE
