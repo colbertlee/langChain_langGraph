@@ -1,0 +1,217 @@
+# Harness Smoke / Full (PR5)
+#
+# 目的
+# ~~~~
+#
+# 给 PR1-PR4 引入的 harness API 提供一个手动触发的 CI 入口：
+#
+# - smoke：跑全部内置 category 的小用例集（规则化 + 注入 fake agent），
+#   验证 ``evals/harness_api.py``、``evals/builtin_runners._accept``、
+#   ``agent.run_task`` 三个 PR 的契约都能跑通。
+# - dry-run：与 smoke 同样输入，但走 ``agent_end_to_end`` 类别（默认用
+#   fake agent，不发请求），验证 PR3 协议适配器。
+#
+# 与 nightly-evals.yml 的区别
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~
+#
+# - nightly-evals 跑的是 ``evals.runner run --all`` 老 CLI，按既有分类。
+# - 本 workflow 跑的是 harness API（``run_case`` / ``run_suite``），
+#   落盘到 ``evals/runs/harness_<ts>/``，文件名模式与既有 runs 兼容。
+#
+# 调用方式
+# ~~~~~~~~
+#
+#   Actions -> "harness" -> Run workflow -> { suite: smoke | full | dry-run }
+#
+# Secret keys used:
+# - （无）—— 所有用例都不发真实 LLM 请求，安全。
+
+name: harness
+
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: '跑哪个 suite'
+        required: true
+        default: 'smoke'
+        type: choice
+        options:
+          - smoke
+          - dry-run
+          - full
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: ai_agent
+
+jobs:
+  harness:
+    name: harness (${{ inputs.suite }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # smoke 至少跑两个 OS，确保 agent.run_task 在 Windows / Linux 行为一致
+        os: [ubuntu-latest, windows-latest]
+    env:
+      HARNESS_SUITE: ${{ inputs.suite }}
+      # PR14：smoke 套件默认 dry-run，不发真实 LLM，
+      # full / dry-run 套件 dry-run 由代码本身判断（PR11）。
+      HARNESS_DRY_RUN: ${{ inputs.suite == 'smoke' && '1' || '0' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: ai_agent/requirements.txt
+
+      - name: Install Python deps
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run harness (${{ inputs.suite }})
+        id: harness
+        shell: bash
+        run: |
+          set +e
+          python - <<'PY'
+          """通过 harness_api 跑不同 suite；落盘到 evals/runs/harness_<ts>/"""
+          import os
+          import sys
+          from datetime import datetime
+          from pathlib import Path
+
+          # 让 ai_agent 模块可被 import
+          root = Path.cwd()
+          if str(root) not in sys.path:
+              sys.path.insert(0, str(root))
+
+          from evals.harness_api import run_suite
+          from evals.builtin_runners import run_agent_end_to_end
+          from agent import Trajectory, Event, Used
+
+          suite = os.environ.get("HARNESS_SUITE", "smoke")
+          dry_run = os.environ.get("HARNESS_DRY_RUN", "0") == "1"
+          # PR14：日志明确标注 dry-run
+          tag = " [DRY-RUN]" if dry_run else ""
+          print(f"[harness] suite={suite}{tag}")
+          ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+          out_dir = Path(f"evals/runs/harness_{suite}_{ts}")
+
+          # ── 通用 fake agent：dry_run / smoke 都用它，不发真实 LLM ──
+          class FakeAgent:
+              def run_task(self, text, *, hooks=None, budget=None,
+                           session_id=None, dry_run=False):
+                  # 简单 echo + 标记：让 cases 里有 expected_output 的能命中
+                  return Trajectory(
+                      events=[Event("final", payload=text)],
+                      final=f"echo: {text}",
+                      used=Used(elapsed_s=0.01),
+                  )
+
+          if suite == "smoke":
+              # 每类 1-2 条规则化用例，验证 harness API 协议。
+              # PR14：smoke 默认 dry-run（HARNESS_DRY_RUN=1）；
+              # 这里的 cases 全部用规则化 runner（intent_routing / safety / calculator），
+              # 不依赖 LLM，dry-run 也不影响它们。
+              cases = [
+                  {"name": "intent_greet", "category": "intent_routing",
+                   "input": "你好", "expected_intent": "greeting"},
+                  {"name": "intent_calc", "category": "intent_routing",
+                   "input": "帮我算一下 1+2", "expected_intent": "calculate"},
+                  {"name": "safe_query", "category": "safety",
+                   "input": "查一下天气", "expect_blocked": False},
+                  {"name": "calc_1+2", "category": "calculator",
+                   "input": "1+2", "expected_output": 3},
+                  {"name": "calc_3*4", "category": "calculator",
+                   "input": "3*4", "expected_output": 12},
+              ]
+          elif suite == "dry-run":
+              # 全 agent_end_to_end，注入 fake agent（dry_run 模式）
+              cases = [
+                  {"name": "e2e_echo_hi", "category": "agent_end_to_end",
+                   "input": "hi", "expected_output": "echo"},
+                  {"name": "e2e_echo_calc", "category": "agent_end_to_end",
+                   "input": "1+2", "expected_output": "echo"},
+              ]
+              # 注：dry-run 模式需要把 fake agent 注入；
+              # 当前 run_case 不暴露 agent 形参，
+              # 所以这里直接调 runner 自己，绕过 harness_api。
+              from evals.registry import CaseResult
+              results = []
+              for c in cases:
+                  r = run_agent_end_to_end(c, hooks=None, budget=None, agent=FakeAgent())
+                  results.append(r)
+              # 落盘（与 run_suite 同样结构）
+              import json
+              from dataclasses import asdict
+              summary = {
+                  "started_at": ts, "finished_at": ts,
+                  "cases_total": len(results),
+                  "cases_passed": sum(1 for r in results if r.passed),
+                  "cases_failed": sum(1 for r in results if not r.passed),
+                  "cases_errored": 0,
+                  "cases": [asdict(r) for r in results],
+              }
+              out_dir.mkdir(parents=True, exist_ok=True)
+              (out_dir / "summary.json").write_text(
+                  json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+              (out_dir / "cases.jsonl").write_text(
+                  "\n".join(json.dumps(asdict(r), ensure_ascii=False) for r in results),
+                  encoding="utf-8")
+              print(f"[harness] dry-run wrote {out_dir}")
+              sys.exit(0 if summary["cases_failed"] == 0 else 1)
+          elif suite == "full":
+              # 全 evals/cases/*.json，复用旧 runner（与 nightly-evals 行为一致）
+              import json
+              cases = []
+              for p in sorted(Path("evals/cases").glob("*.json")):
+                  for c in json.loads(p.read_text(encoding="utf-8")):
+                      if isinstance(c, dict):
+                          c.setdefault("category", p.stem)
+                          cases.append(c)
+          else:
+              print(f"unknown suite: {suite}", file=sys.stderr)
+              sys.exit(2)
+
+          summary = run_suite(cases, out_dir=str(out_dir))
+          print(f"[harness] {suite}: {summary['cases_passed']}/{summary['cases_total']} passed")
+          print(f"[harness] wrote {out_dir}")
+          sys.exit(0 if summary["cases_failed"] == 0 else 1)
+          PY
+          rc=$?
+          echo "harness_exit=$rc"
+          exit $rc
+
+      - name: Upload run artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-${{ inputs.suite }}-${{ matrix.os }}
+          path: |
+            ai_agent/evals/runs/harness_${{ inputs.suite }}_*/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Record harness result
+        if: always()
+        shell: bash
+        run: |
+          if [ "${{ steps.harness.outcome }}" = "success" ]; then
+            echo "HARNESS_RESULT=success" >> "$GITHUB_ENV"
+          else
+            echo "HARNESS_RESULT=failure" >> "$GITHUB_ENV"
+          fi
+          echo "HARNESS_SUITE=${{ inputs.suite }}" >> "$GITHUB_ENV"
+          echo "HARNESS_OS=${{ matrix.os }}" >> "$GITHUB_ENV"

@@ -10,13 +10,17 @@ AIAgent - 基于 LangChain 1.x + LangGraph 的多功能 AI Agent。
 6. 方法语义匹配：set_api_key 真实支持 provider 参数，向后兼容旧调用。
 7. LangChain 1.x API：直接使用 create_agent 返回的 CompiledStateGraph，
    无 AgentExecutor；输入为 {"messages": [...]}，checkpointer 由 create_agent 接收。
+8. LangChain 1.x hooks/middleware：默认注入 LoggingMiddleware / ToolCallCounterMiddleware /
+   ContextTrimMiddleware，详见 agent_middleware.py；通过 create_agent(..., middleware=...) 接入。
 """
 
 import os
 import sqlite3
 import logging
+import time
 import uuid
-from typing import Any, Callable, Dict, Iterator, List, Optional
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 
 from langchain_openai import ChatOpenAI
 from langchain.agents import create_agent
@@ -34,6 +38,7 @@ from config import (
 from tools import get_all_tools, set_rag_instance
 from rag import RAGModule
 from security import SecurityModule, set_security_instance, get_security_instance
+from streaming import StreamDeltaTracker
 from llm_reliability import (
     ResilientLLMInvoker, ModelFallbackChain, FallbackCandidate,
     RetryConfig, FailLogRepository, GracefulDegradation,
@@ -95,6 +100,46 @@ def _build_provider_base_url(provider: str) -> Optional[str]:
         "siliconflow": "https://api.siliconflow.cn/v1",
     }
     return mapping.get(provider)
+
+
+def _strip_cot_wrapper(text: str) -> str:
+    """剥掉思考段开头包装"## 思考"和结尾"## 回答"分隔符。
+
+    ``StreamDeltaTracker.feed`` 拿到的是 split 后的 cot 段，原始结构里包着
+    "## 思考\n...\n## 回答" 样式分隔符；前端只关心新增文字。
+    """
+    if not text:
+        return text
+    s = text
+    # 把前缀 "## 思考"（可能带换行）替换掉
+    for marker in ("## 思考\n", "## 思考"):
+        if s.startswith(marker):
+            s = s[len(marker):]
+            break
+    # 把后缀 "## 回答" 之前的部分保留
+    if "## 回答" in s:
+        s = s.split("## 回答", 1)[0]
+    return s
+
+
+# ============================================================
+# Day 6-7：Turn 公共管线数据结构
+# ============================================================
+
+@dataclass
+class PreparedTurn:
+    """``_prepare_turn()`` 产物：把对话前/后置管线合并到一处。
+
+    字段：
+    - ``intent`` / ``importance``：意图与重要性（一致性指标，所有路径共享）
+    - ``final_input``：已经走完 *记忆 / 上下文 / user prompt 模板* 的最终 user
+      文本，可直接包成 ``HumanMessage`` 喂给 agent
+    - ``payload``：已构造好的 LangChain 1.x 格式 ``{"messages": [...]}``
+    """
+    intent: str = "general"
+    importance: int = 3
+    final_input: str = ""
+    payload: Dict[str, Any] = field(default_factory=dict)
 
 
 def _api_key_for_provider(provider: str) -> str:
@@ -277,13 +322,16 @@ class AIAgent:
             self.tools = get_all_tools()
             self._system_prompt = self._build_system_prompt()
 
-            # LangChain 1.x: create_agent 直接接收 checkpointer，
+            # LangChain 1.x: create_agent 直接接收 checkpointer / middleware，
             # 返回 CompiledStateGraph（不再需要 AgentExecutor 包装）
+            from agent_middleware import build_default_middleware
+            middleware = build_default_middleware()
             self.agent = create_agent(
                 model=self.model,
                 tools=self.tools,
                 system_prompt=self._system_prompt,
                 checkpointer=self.checkpointer,
+                middleware=middleware or None,
             )
 
             logger.info(f"Agent initialized with {self.model_provider}/{self.model_name}")
@@ -455,11 +503,13 @@ class AIAgent:
         logger.info(f"Building fallback agent for {provider}/{model}")
         try:
             tmp_model = self._get_model(provider, model)
+            from agent_middleware import build_default_middleware
             return create_agent(
                 model=tmp_model,
                 tools=self.tools or [],
                 system_prompt=self._system_prompt or "You are a helpful assistant.",
                 checkpointer=self.checkpointer,
+                middleware=build_default_middleware() or None,
             )
         except Exception as e:
             # 把建图失败包装成 LLMError，让 invoker 走 fallback
@@ -897,6 +947,97 @@ class AIAgent:
     def _importance_for_intent(self, intent: str) -> int:
         return _INTENT_TO_IMPORTANCE.get(intent, MemoryImportance.MEDIUM.value)
 
+    # ==========================================
+    # Day 6-7：Turn 公共管线（DRY 重构）
+    # ==========================================
+
+    def _prepare_turn(
+        self,
+        user_input: str,
+        session_id: Optional[str] = None,
+    ) -> Tuple[Optional[str], Optional[PreparedTurn]]:
+        """Turn 公共前置管线：解析 session / 安全 / 意图 / 输入增强。
+
+        Returns:
+            ``(error, turn)``：
+            - ``error`` 非空时调用方应直接 yield/return 该错误并停止；
+            - ``error`` 为空时 ``turn`` 一定非空，可直接交给 LLM 调用。
+
+        Run 与 run_stream 都先调用本方法，之后各自的 LLM 调用路径才开始分叉。
+        """
+        # 1. 解析 session
+        self._resolve_session(session_id)
+
+        # 2. 空输入早退（**此分支 error 不经过管线，但调用方约定为 error**）
+        if not user_input or not user_input.strip():
+            return "❌ 错误: 输入不能为空", None
+
+        logger.info(f"User input: {user_input}")
+
+        # 3. agent 就绪
+        err = self._ensure_agent_ready()
+        if err:
+            return err, None
+
+        # 4. 输入安全
+        err = self._check_safety(user_input)
+        if err:
+            return err, None
+
+        # 5. 意图检测
+        intent, importance = self._detect_intent(user_input)
+
+        # 6. 记录用户轮（不分 run / stream 两种路径都做）
+        self._record_user_turn(user_input, intent, importance)
+
+        # 7. 构造最终 user 文本 → payload
+        enhanced_input = self._build_enhanced_input(user_input)
+        final_input = self._apply_user_prompt_template(user_input, enhanced_input)
+        payload = {"messages": [HumanMessage(content=final_input)]}
+
+        return None, PreparedTurn(
+            intent=intent,
+            importance=importance,
+            final_input=final_input,
+            payload=payload,
+        )
+
+    def _finalize_turn(
+        self,
+        output: str,
+        intent: str,
+        importance: int,
+        *,
+        skip_sanitize: bool = False,
+    ) -> str:
+        """Turn 公共后置管线：最终输出安全检查 + 记忆写入。
+
+        Args:
+            output: LLM 原始输出（同步）或最终累积文本（流式）。
+            intent / importance: 来自 ``_prepare_turn``。
+            skip_sanitize: 流式场景下用户已经在中间件上做了即时 sanitize；
+                            同步场景下走完整 sanitize_output 链路。
+
+        Returns:
+            安全的、可直接返回给用户的最终输出文本。
+        """
+        # 1. 持久化到上下文 + 记忆（无论 sanitize 走不走都先记录原文）
+        self._record_assistant_turn(output, intent, importance)
+
+        # 2. 输出安全检查
+        if skip_sanitize:
+            return output
+
+        try:
+            output_check = self.security.check_output(output or "")
+            if output_check.get("blocked"):
+                logger.warning("Final output blocked by security")
+                return "❌ 输出被阻止: 包含敏感信息"
+            return self.security.sanitize_output(output)
+        except Exception as e:
+            logger.warning(f"Output sanitize failed: {e}")
+            return output
+
     def _record_assistant_turn(self, output: str, intent: str, importance: int) -> None:
         """记录助手输出到上下文与记忆，并按需触发整合。"""
         if not output:
@@ -1005,38 +1146,22 @@ class AIAgent:
         - 永远返回非空字符串（即使全部失败也返回降级回答）
         - agent 未配置时返回配置错误（前置拦截，不进入 fallback）
         - 输入安全检查失败时立即返回（不消耗 LLM 配额）
+
+        Day 6-7：所有前置管线已在 ``_prepare_turn`` 公共方法实现。
         """
-        self._resolve_session(session_id)
-
-        if not user_input or not user_input.strip():
-            return "❌ 错误: 输入不能为空"
-
-        logger.info(f"User input: {user_input}")
-
-        err = self._ensure_agent_ready()
+        # 1. 公共前置管线
+        err, turn = self._prepare_turn(user_input, session_id)
         if err:
             return err
 
-        err = self._check_safety(user_input)
-        if err:
-            return err
-
-        intent, importance = self._detect_intent(user_input)
-        self._record_user_turn(user_input, intent, importance)
-
-        # 构造 LangChain 1.x 兼容的输入
-        enhanced_input = self._build_enhanced_input(user_input)
-        final_input = self._apply_user_prompt_template(user_input, enhanced_input)
-        payload = {"messages": [HumanMessage(content=final_input)]}
-
-        # 准备降级时的素材（记忆 + 上下文片段）
+        # 2. 准备降级时的素材（记忆 + 上下文片段）
         memory_hint = self._safe_memory_hint(user_input)
         context_hint = self._safe_context_hint()
 
-        # 走容错栈（text_extractor 让 invoker 正确抽 AI 文本）
+        # 3. 走容错栈（text_extractor 让 invoker 正确抽 AI 文本）
         result: InvokeResult = self.invoker.invoke(
             agent_factory=self._build_agent_for_provider,
-            payload=payload,
+            payload=turn.payload,
             config={"configurable": {"thread_id": self.current_session_id}},
             session_id=self.current_session_id,
             memory_hint=memory_hint,
@@ -1045,25 +1170,20 @@ class AIAgent:
             text_extractor=self._extract_ai_text,
         )
 
-        # 处理结果
+        # 4. 处理结果（公共后置管线负责 sanitize + 持久化）
         if result.success:
-            # result.text 已经是 text_extractor 抽好的纯文本
-            output = result.text
-            self._record_assistant_turn(output, intent, importance)
-            sanitized = self._sanitize_for_output(output)
             logger.info(
                 f"[OK] provider={result.provider_used}/{result.model_used} "
                 f"attempts={result.attempts} fallbacks={result.fallbacks_used}"
             )
-            return sanitized
+            return self._finalize_turn(result.text, turn.intent, turn.importance)
 
-        # 降级路径：result.text 已是骨架回答
+        # 降级路径：result.text 已是骨架回答（同样走最终化管线）
         logger.warning(
             f"[DEGRADED] trace_id={result.trace_id} "
             f"attempts={result.attempts} last_error={result.last_error_kind}"
         )
-        self._record_assistant_turn(result.text, intent, importance)
-        return result.text
+        return self._finalize_turn(result.text, turn.intent, turn.importance)
 
     def _extract_ai_text_from_state(self, state: Any) -> str:
         """从 state dict 中抽取 AI 文本（备用辅助方法）。"""
@@ -1099,63 +1219,64 @@ class AIAgent:
         - 遇错时切到下一个 fallback，从头重启 stream
         - 全部 fallback 都失败时 yield 降级回答
 
-        阶段 A3/A4/A5 改造：
-        - 不再 yield 纯文本，而是 yield 一个结构化 dict（保持向后兼容：
-          dict 里 `data` 字段是文本增量，前端可直接渲染）；
-        - 事件类型：
-            {"type": "start",   "data": ""}             开始
-            {"type": "safety",  "data": reason}         输入被安全拦截
-            {"type": "thinking","data": "..."}          模型 CoT 段落（被前端折叠）
-            {"type": "chunk",   "data": "..."}          普通回答增量
-            {"type": "tool_call","data": "", "name":..} 工具调用（从消息 metadata 抽取）
-            {"type": "error",   "data": msg}            错误
-            {"type": "complete","data": full_output}    结束
+        阶段 A3/A4/A5 + Day 6-7：
+        - 前置/后置管线走 ``_prepare_turn`` / ``_finalize_turn`` 公共方法，
+          与 ``run`` 完全一致；
+        - yield 结构化 dict（``data`` 是文本增量），事件类型同 A3/A4/A5 旧约定。
         """
-        self._resolve_session(session_id)
-
         # helper：避免每处都写 dict
         def _evt(type_: str, **kwargs) -> Dict[str, Any]:
             return {"type": type_, "data": kwargs.pop("data", ""), **kwargs}
 
+        # 0a. 解析 session / logger（前置管线之外的副作用）
+        self._resolve_session(session_id)
         if not user_input or not user_input.strip():
             yield _evt("error", data="❌ 错误: 输入不能为空")
             return
-
         logger.info(f"Streaming user input: {user_input}")
-
         yield _evt("start", data=user_input)
 
-        err = self._ensure_agent_ready()
+        # 0b. 通用前置管线（与 run 共享）
+        # 注意：start 已在 0a 发出；前置管线失败时仅 yield 类型事件（safety / error）。
+        err, turn = self._prepare_turn(user_input, session_id)
         if err:
-            yield _evt("error", data=err)
+            err_str = str(err)
+            if "输入被阻止" in err_str or "injection" in err_str.lower():
+                yield _evt("safety", data=err_str)
+            else:
+                yield _evt("error", data=err_str)
+            return
+        if turn is None:
+            # 防御性：走到这里意味着 _prepare_turn 设计缺陷
+            yield _evt("error", data="❌ 内部错误: turn 为空")
             return
 
-        err = self._check_safety(user_input)
-        if err:
-            # A5：安全拦截单独事件类型，方便前端高亮
-            yield _evt("safety", data=err)
-            return
-
-        intent, importance = self._detect_intent(user_input)
-        self._record_user_turn(user_input, intent, importance)
-
-        enhanced_input = self._build_enhanced_input(user_input)
-        final_input = self._apply_user_prompt_template(user_input, enhanced_input)
-        payload = {"messages": [HumanMessage(content=final_input)]}
-
+        # 稳健增量追踪（Day 1-2 改造）：
+        # 旧实现用 `last_yielded_len` 长度计数器 + sanitize 文本，会因 sanitize
+        # 改长度（脱敏等）导致后续切片错位。新实现基于"已 yield 文本前缀 diff"，
+        # 对 sanitize 改长度天然鲁棒；详见 streaming.py。
+        tracker = StreamDeltaTracker()
         full_output = ""
-        last_yielded_len = 0
+        safety_blocked = False
+
+        def _safe_sanitize(text: str) -> str:
+            """对增量做脱敏；任何异常都降级为原样返回（不影响主流程）。"""
+            if not text:
+                return text
+            try:
+                return self.security.sanitize_output(text) or text
+            except Exception:
+                return text
 
         try:
             for event, payload_val in self.invoker.stream(
                 agent_factory=self._build_agent_for_provider,
-                payload=payload,
+                payload=turn.payload,
                 config={"configurable": {"thread_id": self.current_session_id}},
                 session_id=self.current_session_id,
             ):
                 if event == "chunk":
-                    # A3：优先尝试从消息 metadata 抽 tool_call（LangGraph 1.x 中，
-                    # AIMessage 可能在 tool_calls 字段里携带工具调用）
+                    # A3：tool_call 事件（与文本无关）
                     tool_name = self._extract_tool_name(payload_val)
                     if tool_name:
                         yield _evt("tool_call", data="", name=tool_name)
@@ -1164,27 +1285,30 @@ class AIAgent:
                     if not current_text:
                         continue
 
-                    # A4：拆分 CoT 段（"## 思考 ##"）与回答段
-                    delta_text = current_text[last_yielded_len:]
-                    cot, answer = self._split_cot(current_text)
-                    if cot and len(cot) > last_yielded_len:
-                        # 简化策略：每次增量若仍包含"## 思考"前缀，则推一个 thinking 事件
-                        think_inc = self._slice_thinking_increment(delta_text)
-                        if think_inc:
-                            yield _evt("thinking", data=think_inc)
-                    if len(current_text) > last_yielded_len:
-                        incremental = current_text[last_yielded_len:]
-                        try:
-                            sanitized_inc = self.security.sanitize_output(incremental)
-                        except Exception:
-                            sanitized_inc = incremental
-                        if sanitized_inc:
-                            yield _evt("chunk", data=sanitized_inc)
-                        last_yielded_len = len(current_text)
-                        full_output = current_text
+                    # 前缀 diff：对 sanitize 改长度天然鲁棒
+                    thinking_inc, answer_inc, reset_flag = tracker.feed(
+                        current_text,
+                        sanitizer=_safe_sanitize,
+                        cot_splitter=self._split_cot,
+                    )
+
+                    if reset_flag == "RESET":
+                        # 上游整段重置：告知前端丢掉之前缓存，从头渲染
+                        yield _evt("reset", data="")
+                    if thinking_inc:
+                        # 把 "## 思考" / "## 回答" 包装剥掉给前端（只传增量文本）
+                        yield _evt("thinking", data=_strip_cot_wrapper(thinking_inc))
+                    if answer_inc:
+                        yield _evt("chunk", data=answer_inc)
+
+                    full_output = tracker.full_output
                 elif event == "error":
                     logger.warning(f"Stream chunk error: {payload_val}; trying next fallback")
                     yield _evt("error", data=str(payload_val))
+                    # 一旦遇到 provider 错误，下一个 fallback 会从零开始；
+                    # 我们也要重置 tracker，否则新旧文本混合。
+                    tracker.reset()
+                    full_output = ""
                     continue
                 elif event == "degraded":
                     # 全部 fallback 失败：降级回答（一次性 yield）
@@ -1197,18 +1321,23 @@ class AIAgent:
             yield _evt("error", data=self._format_error(e))
             return
 
-        # 持久化前做一次最终安全检查（A5）
+        # 最终安全检查（输出端）：与 _finalize_turn 逻辑等价但要 yield 事件
         try:
             output_check = self.security.check_output(full_output or "")
             if output_check.get("blocked"):
                 logger.warning("Final output blocked by security")
-                # 用 chunk 事件告知前端
                 yield _evt("safety", data="❌ 输出被阻止: 包含敏感信息")
-                return
+                safety_blocked = True
         except Exception as e:
             logger.warning(f"Final safety check failed: {e}")
 
-        self._record_assistant_turn(full_output, intent, importance)
+        if safety_blocked:
+            # 即便 blocked，也要把"已收到的文本"存入记忆以便审计/复盘
+            self._record_assistant_turn(full_output, turn.intent, turn.importance)
+            return
+
+        # 后置管线（无 sanitize：流式场景逐增量已 sanitize 过，且最后再做 block 检查）
+        self._record_assistant_turn(full_output, turn.intent, turn.importance)
         yield _evt("complete", data=full_output)
         logger.info("Streaming completed")
 
@@ -1328,3 +1457,282 @@ class AIAgent:
 
     def list_all_sessions(self, status: Optional[str] = None, limit: int = 20) -> Any:
         return self.context_manager.list_sessions(status=status, limit=limit)
+
+
+# ============================================================
+# Harness 的 agent 侧"壳"（PR1）
+# ------------------------------------------------------------
+# 目标：给评测/测试一个稳定的入口 ``run_task``，不暴露 LangGraph 内部。
+# 本 PR 只包一层 ``run``：
+# - 捕获异常 → Trajectory.error
+# - 记录 _finalize_turn 之后的 final 文本（必须 sanitize 后的输出）
+# - Hooks / Budget / dry_run 形参预留，**默认空实现**（PR3 才会真正消费）
+# 事件/工具观测点由后续 PR 注入，**本 PR 不引任何外部依赖**。
+# ============================================================
+
+@dataclass
+class Event:
+    """agent 在执行过程中发出的事件。
+
+    kind 取值（PR1 暂不产生，仍由后续 PR 注入）：
+    - ``"llm_call"`` / ``"llm_result"``
+    - ``"tool_call"`` / ``"tool_result"``
+    - ``"final"`` / ``"error"``
+    """
+    kind: str
+    name: str = ""
+    payload: Any = None
+    ts_ms: float = 0.0
+
+
+@dataclass
+class Hooks:
+    """harness 注入的回调集合。PR1 全部为可选，不传则 agent 内部不触发任何回调。"""
+    on_event: Optional[Callable[[Event], None]] = None
+    on_tool_call: Optional[Callable[[str, Dict[str, Any]], None]] = None
+    on_score: Optional[Callable[[Dict[str, Any]], None]] = None
+    # PR15：可选的"事件注入容器"——hooks 想让 ``llm_result`` 等事件加入
+    # ``Trajectory.events`` 时，往这里 append；``run_task`` 会在主 events 后拼接。
+    extra_events: Optional[List[Event]] = None
+
+
+@dataclass
+class Budget:
+    """harness 注入的预算。PR1 **仅 timeout 实际生效**；token/cost 留给后续 PR。"""
+    timeout_s: float = 0.0   # 0 = 不限
+    max_tokens: int = 0     # 0 = 不限
+    max_cost_usd: float = 0.0  # 0 = 不限
+
+
+@dataclass
+class Used:
+    """用例实际消耗。"""
+    elapsed_s: float = 0.0
+    tokens: int = 0
+    cost_usd: float = 0.0
+
+
+@dataclass
+class Trajectory:
+    """一次 task 的完整轨迹。"""
+    events: List[Event] = field(default_factory=list)
+    final: Any = None
+    used: Used = field(default_factory=Used)
+    error: Optional[str] = None
+
+
+def run_task(
+    self,
+    user_input: str,
+    *,
+    hooks: Optional[Hooks] = None,
+    budget: Optional[Budget] = None,
+    session_id: Optional[str] = None,
+    dry_run: bool = False,
+) -> Trajectory:
+    """harness / tests 共用的统一入口（PR10 接入 Budget.timeout_s）。
+
+    行为契约：
+    - 成功：``trajectory.final`` = ``run()`` 返回的字符串（已 sanitize）
+    - 异常：``trajectory.error`` = 异常字符串，``trajectory.final`` = 空
+    - 超时（``budget.timeout_s > 0``）：``trajectory.error`` 标 ``"TimeoutError: timeout_s=..."``，
+      事件序列加 ``timeout``。
+    - 超额（``budget.max_tokens`` / ``budget.max_cost_usd``）：``trajectory.error``
+      标 ``"BudgetExhaustedError: ..."``，事件序列加 ``budget_exceeded``。
+    - ``hooks.on_event`` 在每次发事件时被调用（PR7 真正接入）；
+      即便 hooks 为 None，事件也会进 ``trajectory.events``。
+    - **PR11** ``dry_run=True``：直接返回 ``trajectory.final=""`` + 事件 ``dry_run``，
+      **不调 ``run()``**、不发任何 LLM / I/O。
+
+    注意点
+    ~~~~~~
+
+    - 超时实现是软超时：``run()`` 同步阻塞，靠后台线程探针周期性设位、
+      主循环在长流程间检查位并抛 ``TimeoutError``。**不会**中断运行中的 LLM HTTP 请求；
+      仅在 ``run()`` 自然返回（成功 / 失败）之后做"事后超时"判断。
+    - 这个策略对 harness 足够：目标是 cap agent 的**总时长**，
+      而非强制中断单个 HTTP 请求。
+
+    注意：``run`` 本身已内置五层容错栈（Timeout/Retry/Fallback/FailLog/Graceful），
+    本方法只做"异常兜底 + 时间度量 + 事件埋点 + 软超时"——不重复容错。
+    """
+    events: List[Event] = []
+    t0 = time.monotonic()
+
+    def _emit(kind: str, name: str = "", payload: Any = None) -> None:
+        """统一出口：写 events + 触发 hooks.on_event（如果提供）。"""
+        ts_ms = (time.monotonic() - t0) * 1000.0
+        ev = Event(kind=kind, name=name, payload=payload, ts_ms=ts_ms)
+        events.append(ev)
+        if hooks is not None and hooks.on_event is not None:
+            try:
+                hooks.on_event(ev)
+            except Exception:  # noqa: BLE001 — hooks 异常不应影响主流程
+                logger.exception("[run_task] hooks.on_event raised; ignored")
+
+    # 入参事件先于 run() 发出，便于 harness 看到"起点"
+    _emit("turn_start", name="run_task", payload={"input": user_input})
+
+    # PR11：dry_run 短路。直接返回空 final，不调 run()、不发 LLM。
+    if dry_run:
+        elapsed = time.monotonic() - t0
+        _emit("dry_run", name="run_task", payload={"input": user_input})
+        return Trajectory(
+            events=events,
+            final="",
+            used=Used(elapsed_s=elapsed),
+            error=None,
+        )
+
+    # PR10：软超时。运行 run() 期间，至少每 50ms 探一次超时位。
+    timeout_s = float(getattr(budget, "timeout_s", 0.0) or 0.0)
+    timed_out = [False]
+
+    def _timeout_watchdog() -> None:
+        # 后台线程：等到 timeout_s 后置位。
+        # 主线程在 run() 之后如何响应见下文。
+        target = t0 + timeout_s
+        while time.monotonic() < target:
+            time.sleep(0.05)
+        timed_out[0] = True
+
+    watchdog = None
+    if timeout_s > 0:
+        import threading
+        watchdog = threading.Thread(target=_timeout_watchdog, daemon=True)
+        watchdog.start()
+
+    try:
+        final_text = self.run(user_input, session_id=session_id)
+    except Exception as exc:  # noqa: BLE001 — 必须兜底，harness 不允许抛
+        elapsed = time.monotonic() - t0
+        _emit("error", name="run", payload=repr(exc))
+        return Trajectory(
+            events=events + _take_extra_events(hooks),
+            final="",
+            used=Used(elapsed_s=elapsed),
+            error=f"{type(exc).__name__}: {exc}",
+        )
+
+    elapsed = time.monotonic() - t0
+    if timed_out[0]:
+        # run() 跑完了，但已经超时 → 标注为 TimeoutError 容错答。
+        _emit("timeout", name="run_task", payload={"timeout_s": timeout_s})
+        return Trajectory(
+            events=events + _take_extra_events(hooks),
+            final="",
+            used=Used(elapsed_s=elapsed),
+            error=f"TimeoutError: timeout_s={timeout_s:.3f}",
+        )
+
+    # 成功路径：附带 sanitize 后的 final 文本
+    _emit("final", name="run", payload=final_text)
+
+    # PR15：tokens / cost_usd 真实化。
+    # 任何 ``llm_result`` 事件（``run()`` 内部可通过 hooks 注入）会带
+    # ``payload["tokens"]`` / ``payload["cost_usd"]``；以**最后一个**事件为准。
+    # 没有 llm_result 事件时，回退到 PR12 的粗估（4 chars ≈ 1 token，cost=0）。
+    # 注意：extra_events 由 hooks 注入，可能在 run_task 期间才 append；
+    # 这里用 _take_extra_events 但**先消耗后借出**（bridge 借出=False），
+    # 这样统计完再让后续返回值带走。
+    bridge: List[Event] = []
+    if hooks is not None and getattr(hooks, "extra_events", None):
+        bridge = list(hooks.extra_events)
+    all_events = events + bridge
+    llm_tokens = None
+    llm_cost = None
+    for ev in all_events:
+        if ev.kind == "llm_result" and isinstance(ev.payload, dict):
+            t = ev.payload.get("tokens")
+            c = ev.payload.get("cost_usd")
+            if t is not None:
+                llm_tokens = int(t)
+            if c is not None:
+                llm_cost = float(c)
+    used_tokens = llm_tokens if llm_tokens is not None else len(final_text) // 4
+    used_cost = llm_cost if llm_cost is not None else 0.0
+    used = Used(elapsed_s=elapsed, tokens=used_tokens, cost_usd=used_cost)
+
+    # PR12：budget.max_tokens / max_cost_usd 短路。
+    over_reason = _check_budget_exhausted(budget, used)
+    if over_reason is not None:
+        _emit("budget_exceeded", name="run_task", payload=over_reason)
+        return Trajectory(
+            events=events + _take_extra_events(hooks),
+            final="",
+            used=used,
+            error=f"BudgetExhaustedError: {over_reason}",
+        )
+
+    return Trajectory(
+        events=events + _take_extra_events(hooks),
+        final=final_text,
+        used=used,
+        error=None,
+    )
+
+
+def _take_extra_events(hooks: Optional[Hooks]) -> List[Event]:
+    """PR15：把 hooks 里 extra_events 列表的事件搬到主 events 后面。
+
+    用法：harness 想让 agent.run_task 之外的"统计事件"（如 ``llm_result``）
+    也出现在 ``Trajectory.events`` 时，构造 ``Hooks(extra_events=[...])``，
+    并在自己的代码里 append 到这个列表。``run_task`` 会在每次返回前取走。
+
+    重复调用说明：
+    - 每次 ``run_task`` 返回前调用一次（仅消费一次）。
+    - 同一 Hooks 实例被多个 ``run_task`` 复用时，第二次调用的 ``extra_events``
+      如果已被前一次消费，应由调用方重新填充。
+    """
+    if hooks is None:
+        return []
+    extras = getattr(hooks, "extra_events", None)
+    if not extras:
+        return []
+    # 取走 = 复制后清空（避免下次复用 stale 数据）
+    out = list(extras)
+    extras.clear()
+    return out
+
+
+def _check_budget_exhausted(budget: Optional[Budget], used: Used) -> Optional[Dict[str, Any]]:
+    """PR12：budget 短路。返回 None 表示未超额；否则返回描述 dict。
+
+    规则：
+    - ``max_tokens`` = 0 → 不限；
+    - ``max_cost_usd`` = 0 → 不限；
+    - 任何一个超额 → 返回超额原因（payload），由 ``run_task`` 转成 error。
+    """
+    if budget is None:
+        return None
+    max_tokens = int(getattr(budget, "max_tokens", 0) or 0)
+    max_cost_usd = float(getattr(budget, "max_cost_usd", 0.0) or 0.0)
+    if max_tokens > 0 and used.tokens > max_tokens:
+        return {
+            "kind": "tokens",
+            "used": used.tokens,
+            "limit": max_tokens,
+        }
+    if max_cost_usd > 0 and used.cost_usd > max_cost_usd:
+        return {
+            "kind": "cost",
+            "used": used.cost_usd,
+            "limit": max_cost_usd,
+        }
+    return None
+
+
+# 把 run_task 绑到 AIAgent 类上（PR1 行为：默认不接任何外部逻辑，
+# 仅在 ``run`` 外面包一层护栏 + Trajectory 收集）
+AIAgent.run_task = run_task
+
+
+# 显式导出，便于 PR2 从 harness_api 里 import
+__all__ = [
+    "Event",
+    "Hooks",
+    "Budget",
+    "Used",
+    "Trajectory",
+    "AIAgent",
+]

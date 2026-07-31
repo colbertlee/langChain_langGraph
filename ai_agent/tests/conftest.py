@@ -21,6 +21,7 @@ $ pytest tests/ --collect-only -q
 | `sample_messages` | function | 示例 OpenAI 格式消息序列 |
 | `sample_upload_file` | function | 测试用文本文件（tmp_path） |
 | `client` | function (per file) | FastAPI TestClient（test_upload / test_basic_endpoints 各自定义） |
+| `isolated_middleware_budget` | function (autouse) | 把 `TokenUsageMiddleware` 的预算文件 + 全局状态重定向到 tmp_path，防跨测试污染 |
 
 ## pytest 内置 fixture（自动可用）
 
@@ -67,24 +68,10 @@ def temp_dir() -> Iterator[str]:
 def isolated_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """隔离环境变量：测试中设置的值不会影响其他测试。
 
-    自动注入 fake API key，避免 web_ui.py 在 import 时调用真实 LLM。
-
-    Usage:
-        def test_openai_call(isolated_env):
-            from langchain_openai import ChatOpenAI
-            llm = ChatOpenAI()  # 不会真发请求
+    PR4：转由 ``evals.harness._fixtures.isolated_env`` 提供；
+    单一真相源（测试 + 评测一致），便于后续 PR 同步 fake LLM 等。
     """
-    fake_keys = {
-        "OPENAI_API_KEY": "sk-test-fake-key-for-tests-only",
-        "ANTHROPIC_API_KEY": "sk-ant-test-fake-key",
-        "SERPAPI_API_KEY": "test-serpapi-key",
-        "DASHSCOPE_API_KEY": "test-dashscope-key",
-        "OPENAI_API_BASE": "https://mock-openai.example.com/v1",
-    }
-    for k, v in fake_keys.items():
-        monkeypatch.setenv(k, v)
-    # 同时清理真实用户环境变量（如果有）
-    yield
+    yield from _harness_isolated_env(monkeypatch)
 
 
 @pytest.fixture
@@ -111,19 +98,68 @@ def sample_upload_file(tmp_path: Path):
     return file_path
 
 
+# ─────────────── middleware 持久化状态隔离 ───────────────
+
+
+@pytest.fixture
+def isolated_middleware_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[None]:
+    """隔离 ``TokenUsageMiddleware`` 的预算持久化状态，防跨测试污染。
+
+    默认情况下，``TokenUsageMiddleware.__init__`` 在 ``daily_budget_usd`` /
+    ``monthly_budget_usd`` 非空时把 ``~/.agent_middleware_budget.json`` 作为
+    默认 ``budget_persist_path``，导致：
+
+    - 同一日内 ``day_cost`` 跨测试持续累加（直到触发 ``TokenBudgetExceeded``）
+    - ``_fired_alerts`` 集合不会被重置
+    - 整文件 200+ 用例连续跑时，最后几条 alert 用例大概率挂
+
+    本 fixture 把 ``$HOME`` 重定向到 ``tmp_path/.fake_home``（不与被测
+    cwd 重叠），并 monkeypatch 已 import 的 ``agent_middleware.Path.home``
+    做兜底。
+
+    Usage:
+        ``test_agent_middleware.py`` 顶部 ``from .conftest import isolated_middleware_budget``
+        或显式声明。
+
+    注意：本 fixture **不是 autouse**（autouse 会污染 ``tmp_path`` 之外的测试，
+    如 ``test_tools.py::test_list_files_empty`` 依赖 ``tmp_path`` 下无子目录）。
+    通过 ``tests/test_agent_middleware.py`` 顶部 ``pytestmark`` 自动应用：
+        pytestmark = pytest.mark.usefixtures("isolated_middleware_budget")
+    """
+    fake_home = tmp_path / ".fake_home"
+    fake_home.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setenv("USERPROFILE", str(fake_home))  # Windows 兼容
+
+    # 兜底：直接 patch 已 import 的 agent_middleware.Path.home
+    try:
+        import agent_middleware as _am
+        monkeypatch.setattr(_am.Path, "home", classmethod(lambda cls: fake_home))
+    except ImportError:
+        pass  # agent_middleware 未被任何测试 import，跳过
+
+    yield
+    # monkeypatch 自动还原
+
+
 # ─────────────── 自动标记 ───────────────
 
 def pytest_collection_modifyitems(config, items):
-    """自动给测试加 marker 标签。
+    """自动给测试加 marker 标签 + 自动应用 middleware 隔离 fixture。
 
     - 含 'integration' 字样的 → @pytest.mark.integration
     - 含 'network' 字样的 → @pytest.mark.network
     - 慢测试（>2s）需要 @pytest.mark.slow 显式声明
     - legacy 目录下的 → @pytest.mark.legacy
+    - ``tests/test_agent_middleware.py`` 下的测试 → 自动使用
+      ``isolated_middleware_budget`` fixture，隔离 ``$HOME`` 防预算污染
     """
     integration_marker = pytest.mark.integration
     network_marker = pytest.mark.network
     legacy_marker = pytest.mark.legacy
+    middleware_marker = pytest.mark.usefixtures("isolated_middleware_budget")
     for item in items:
         # legacy 标记
         if "/legacy/" in item.nodeid:
@@ -134,6 +170,9 @@ def pytest_collection_modifyitems(config, items):
         # network 标记
         elif "network" in item.nodeid.lower():
             item.add_marker(network_marker)
+        # middleware 隔离（仅作用于 test_agent_middleware.py）
+        if "/test_agent_middleware.py" in item.nodeid:
+            item.add_marker(middleware_marker)
 
 
 # 显式注册 markers（消除 PytestUnknownMarkWarning）
