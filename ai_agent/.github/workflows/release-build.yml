@@ -12,10 +12,284 @@ on:
 
 permissions:
   contents: write   # 用来创建 / 上传 Release
+  issues: write     # 验收失败时开 issue
 
 jobs:
+  archive-acceptance:
+    name: archive-acceptance-gate
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ai_agent
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: ai_agent/requirements.txt
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # ─────────────────── Day 18：过夜 archive 验收 ───────────────────
+      # 跑 ``tools/archive_acceptance.py --strict``：
+      # - 任何 fail / error → 退出 1，CI 红；
+      # - 结果写到 ``tests-archive/acceptance/<ts>/summary.json``；
+      # - 同 job 还做"上趋势"，给个 summary diff。
+      - name: Run archive acceptance
+        id: acceptance
+        shell: bash
+        run: |
+          set +e
+          python tools/archive_acceptance.py --strict --timeout 600
+          rc=$?
+          echo "acceptance_exit=$rc"
+          exit $rc
+
+      - name: Collect acceptance summary
+        shell: bash
+        run: |
+          LATEST=$(ls -1td tests-archive/acceptance/*/ 2>/dev/null | head -n 1)
+          if [ -z "$LATEST" ]; then
+            echo "no acceptance summary found"
+            exit 1
+          fi
+          echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
+          # 打印关键指标
+          python - <<PY
+          import json, os
+          d = json.load(open(os.path.join("$LATEST","summary.json"),encoding="utf-8"))
+          t = d["totals"]
+          print(f"  files: {t['files']}")
+          print(f"  passed: {t['passed']}")
+          print(f"  failed: {t['failed']}")
+          print(f"  errored: {t['errored']}")
+          print(f"  skipped: {t['skipped']}")
+          print(f"  ran_ratio: {t['ran_ratio']}")
+          PY
+
+      - name: Upload acceptance artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: archive-acceptance
+          path: |
+            ai_agent/tests-archive/ACCEPTANCE.md
+            ai_agent/tests-archive/acceptance/
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Open issue on regression
+        if: failure()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TITLE="archive-acceptance FAILED on ${{ github.ref_name }} (${{ github.run_id }})"
+          BODY=$(printf '## tests-archive/ Acceptance Failed\n\n- ref: %s\n- run_id: %s\n- see artifact: \`archive-acceptance\`\n\n请检查是否该归档/清理。' \
+            "${{ github.ref_name }}" "${{ github.run_id }}")
+          gh issue create --title "$TITLE" --body "$BODY" --label archive-acceptance \
+            || echo "::error::Failed to open issue"
+
+      # ─────────────────── Day 18：archive 量化趋势 ───────────────────
+      # 跑 ``tools/archive_trend.py --output tests-archive/TREND.md``
+      # 写一份可读的趋势报告，下次 release 看 diff 一目了然。
+      - name: Archive trend report
+        if: always()
+        shell: bash
+        run: |
+          python tools/archive_trend.py --output tests-archive/TREND.md
+          echo "--- TREND.md ---"
+          head -n 30 tests-archive/TREND.md
+
+      - name: Strict diff vs previous (block on regression)
+        if: success()
+        shell: bash
+        run: |
+          set +e
+          python tools/archive_trend.py --diff --strict
+          rc=$?
+          if [ $rc -ne 0 ]; then
+            echo "::error::archive acceptance regressed vs previous run"
+          fi
+          exit $rc
+
+      # ─────────────────── Day 19：changelog 追加 ───────────────────
+      - name: Append changelog line
+        if: success()
+        shell: bash
+        run: |
+          python tools/archive_changelog.py --prune-days 90
+
+      # ─────────────────── Day 21：生成 dashboard SVG ───────────────────
+      - name: Generate dashboard SVG
+        if: success()
+        shell: bash
+        run: |
+          python tools/archive_dashboard.py --output tests-archive/dashboard.svg
+          ls -la tests-archive/dashboard.svg
+
+      - name: Upload dashboard artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: archive-dashboard-${{ github.ref_name }}
+          path: |
+            ai_agent/tests-archive/dashboard.svg
+            ai_agent/tests-archive/dashboard_hub.html
+          if-no-files-found: warn
+          retention-days: 365
+
+      # Day 25：生成跨 dashboard 集成 hub HTML
+      - name: Generate dashboard hub
+        if: success()
+        shell: bash
+        run: |
+          python tools/dashboard_hub.py --title "Agent Observability (${{ github.ref_name }})"
+
+      # ─────────────────── Day 19：auto-archive PR ───────────────────
+      # 根据最新 acceptance summary 找 errored 文件，
+      # 物理移到 tests-archive/_obsolete/<ts>/，开 PR 让人 review。
+      - name: Detect errored archive files
+        id: detect
+        if: success()
+        shell: bash
+        run: |
+          python tools/archive_legacy.py --auto-archive
+          python tools/archive_legacy.py --auto-archive | python -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          files = d.get('to_archive', [])
+          with open('/tmp/auto_archive_files.txt','w', encoding='utf-8') as f:
+              f.write('\n'.join(files))
+          print(f'errored count: {len(files)}')
+          for x in files:
+              print('  -', x)
+          "
+
+      - name: Physically archive errored files
+        if: success() && steps.detect.outputs.result == 'success'
+        shell: bash
+        run: |
+          python tools/archive_legacy.py --archive-errored
+
+      - name: Open auto-archive PR
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 1. 创建分支（基于当前 tag 或 main）
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            BASE_BRANCH="${{ github.ref_name }}"
+          else
+            BASE_BRANCH="${{ github.ref_name }}"
+          fi
+
+          # 2. 检查是否有改动（errored 文件被移动才会产生 diff）
+          if git diff --quiet HEAD -- tests-archive/; then
+            echo "no archive changes to commit"
+            exit 0
+          fi
+
+          BRANCH="auto-archive/$(date +%s)"
+          git checkout -b "$BRANCH"
+          git add tests-archive/_obsolete tests-archive/auto_archive.md 2>/dev/null || true
+          git commit -m "chore(archive): auto-archive errored test files
+
+          Auto-generated by release-build workflow archive-acceptance job.
+          Moves errored files (status == error in acceptance summary) from
+          tests-archive/tests/ to tests-archive/_obsolete/<ts>/ for cleanup.
+
+          See tests-archive/auto_archive.md for the full list."
+          git push -f origin "$BRANCH" || echo "::warning::push failed; skipping PR"
+
+          # 3. 用 gh CLI 开 PR（Day 21：用 PR 模板）
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            TITLE="auto-archive: clean errored archive files"
+
+            # Day 21：用 .github/PULL_REQUEST_TEMPLATE/auto-archive.md 模板
+            TEMPLATE=".github/PULL_REQUEST_TEMPLATE/auto-archive.md"
+            if [ -f "$TEMPLATE" ]; then
+              # 渲染模板占位
+              FILES=$(cat /tmp/auto_archive_files.txt 2>/dev/null | head -50 || echo '无')
+              FILES_TABLE=$(cat /tmp/auto_archive_files.txt 2>/dev/null | awk '{
+                cmd = "wc -l tests-archive/tests/" $1
+                cmd | getline lines
+                close(cmd)
+                print "| `" $1 "` | " lines " lines | `tests-archive/tests/" $1 "` | `tests-archive/_obsolete/<TS>/" $1 "` |"
+              }')
+
+              sed -e "s|{{SUMMARY}}|自动归档 acceptance summary 中 status=error 的文件|" \
+                  -e "s|{{FILES_TABLE}}|${FILES_TABLE}|" \
+                  -e "s|{{TAG_NAME}}|${{ github.ref_name }}|" \
+                  -e "s|<TS>|$(date +%Y%m%d_%H%M%S)|g" \
+                  -e "s|{{LINKED_ISSUES}}|N/A|" \
+                  "$TEMPLATE" > /tmp/pr_body.md
+
+              BODY_FILE="/tmp/pr_body.md"
+            else
+              BODY_FILE="-"
+              BODY="## Auto-Archive PR
+
+              > **🚨 Maintainer review required**: 见 \`docs/auto-archive-approval.md\`
+
+              $(cat /tmp/auto_archive_files.txt 2>/dev/null || echo '无')"
+            fi
+
+            gh pr create --base "$BASE_BRANCH" --head "$BRANCH" \
+              --title "$TITLE" \
+              --body-file "$BODY_FILE" \
+              --label auto-archive,archive-acceptance \
+              --reviewer "<your-org>/maintainers" \
+              2>/dev/null || gh pr create --base "$BASE_BRANCH" --head "$BRANCH" \
+              --title "$TITLE" --body "$BODY" \
+              --label auto-archive,archive-acceptance \
+              --reviewer "<your-org>/maintainers" \
+              || echo "::warning::PR creation skipped"
+          fi
+
+      # ─────────────────── Day 22：PR metadata 校验 ───────────────────
+      # 检查新开的 PR body 是否含必要 section（PR template checklist）
+      - name: PR metadata check
+        if: success()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUMBER=$(gh pr list --label auto-archive --state open --json number --jq '.[0].number // empty')
+          if [ -z "$PR_NUMBER" ]; then
+            echo "no open auto-archive PR; skipping metadata check"
+            exit 0
+          fi
+          python tools/check_pr_metadata.py \
+            --repo "${{ github.repository }}" \
+            --pr "$PR_NUMBER"
+
+      # Day 23：PR title 格式校验
+      - name: PR title check
+        if: success()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUMBER=$(gh pr list --label auto-archive --state open --json number --jq '.[0].number // empty')
+          if [ -z "$PR_NUMBER" ]; then
+            echo "no open auto-archive PR; skipping title check"
+            exit 0
+          fi
+          python tools/check_pr_title.py \
+            --repo "${{ github.repository }}" \
+            --pr "$PR_NUMBER"
+
   build:
     name: build-${{ matrix.os }}
+    needs: archive-acceptance
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -141,7 +415,7 @@ jobs:
 
   release:
     name: publish-release
-    needs: build
+    needs: [build, archive-acceptance]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
@@ -150,6 +424,103 @@ jobs:
         with:
           path: artifacts
 
+      # Day 21：dashboard.svg → dashboard.png（GitHub release notes 不支持 SVG 内嵌）
+      # Day 22：用 actions/cache 复用 PNG 转换结果
+      # Day 23：跨 ref 共享 cache（key 不含 ref name）
+      - name: Restore PNG cache
+        if: always()
+        uses: actions/cache@v4
+        with:
+          path: /tmp/cairo-cache
+          key: cairo-png-global
+          restore-keys: |
+            cairo-png-
+
+      - name: Convert dashboard SVG to PNG
+        if: always()
+        shell: bash
+        run: |
+          if [ -f artifacts/archive-dashboard-${{ github.ref_name }}/dashboard.svg ]; then
+            cp artifacts/archive-dashboard-${{ github.ref_name }}/dashboard.svg artifacts/dashboard.svg
+
+            # 检查 cache hit（key 基于 dashboard.svg 内容 hash + cairosvg 版本）
+            SVG_HASH=$(sha256sum artifacts/dashboard.svg | cut -d' ' -f1)
+            CAIRO_VERSION=$(python -c "import cairosvg; print(cairosvg.__version__)" 2>/dev/null || echo "none")
+            CACHE_KEY="cairo-${CAIRO_VERSION}-${SVG_HASH}"
+
+            # 找已 cache 的 PNG
+            if [ -f "/tmp/cairo-cache/${CACHE_KEY}.png" ]; then
+              echo "[cache-hit] reusing ${CACHE_KEY}.png"
+              cp "/tmp/cairo-cache/${CACHE_KEY}.png" artifacts/dashboard.png
+            else
+              # Day 23：用 tools/svg_to_png.py（带 fallback）
+              python tools/svg_to_png.py \
+                artifacts/dashboard.svg \
+                artifacts/dashboard.png \
+                --width 1080 || echo "[warn] svg_to_png failed"
+
+              # 如果 cairosvg 成功转 → 缓存
+              if [ -s artifacts/dashboard.png ]; then
+                SIZE=$(stat -c%s artifacts/dashboard.png 2>/dev/null || stat -f%z artifacts/dashboard.png)
+                if [ "$SIZE" -gt 100 ]; then
+                  # 真 PNG（>100 bytes），不是占位
+                  mkdir -p /tmp/cairo-cache
+                  cp artifacts/dashboard.png "/tmp/cairo-cache/${CACHE_KEY}.png"
+                  echo "[ok] converted to PNG and cached (${SIZE} bytes)"
+                else
+                  echo "[warn] placeholder PNG detected (${SIZE} bytes); not caching"
+                fi
+              fi
+            fi
+          else
+            echo "no dashboard.svg artifact"
+          fi
+
+      # Day 22：保存 SVG→PNG cache 到下次 CI 复用
+      # 注意：actions/cache 在 post step 自动 save，所以这里直接 prepare 即可
+      - name: Prepare PNG cache for save
+        if: always()
+        shell: bash
+        run: |
+          if [ -d /tmp/cairo-cache ]; then
+            # 限制 cache 体积（保留最新 50 个 PNG）
+            cd /tmp/cairo-cache
+            ls -1t *.png 2>/dev/null | tail -n +51 | xargs -r rm
+            cd -
+            du -sh /tmp/cairo-cache
+          fi
+
+      - name: Build release notes
+        if: always()
+        shell: bash
+        run: |
+          # Day 23：fallback — 若 PNG 是占位（<100 字节），自动用 SVG embed
+          PNG_SIZE=$(stat -c%s artifacts/dashboard.png 2>/dev/null || stat -f%z artifacts/dashboard.png 2>/dev/null || echo 0)
+          if [ "$PNG_SIZE" -gt 100 ]; then
+            cat > artifacts/RELEASE_NOTES.md << 'EOF'
+          ## 📊 Archive Observability Dashboard
+
+          <img src="dashboard.png" alt="archive dashboard" width="1080"/>
+
+          *Multi-panel SVG: archive trend + evals pass_rate + chat latency*
+          [📥 download SVG](dashboard.svg)
+          ---
+          EOF
+          else
+            echo "::warning::PNG is placeholder (${PNG_SIZE} bytes); falling back to SVG embed"
+            cat > artifacts/RELEASE_NOTES.md << 'EOF'
+          ## 📊 Archive Observability Dashboard
+
+          ⚠️ cairosvg 转 PNG 不可用，**fallback 到 SVG embed**：
+
+          <img src="dashboard.svg" alt="archive dashboard" width="1080"/>
+
+          *Multi-panel SVG: archive trend + evals pass_rate + chat latency*
+          ---
+          EOF
+          fi
+          cat artifacts/RELEASE_NOTES.md
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -157,6 +528,9 @@ jobs:
             artifacts/ai-agent-windows/ai-agent-windows.zip
             artifacts/ai-agent-linux/ai-agent-linux.tar.gz
             artifacts/ai-agent-macos/ai-agent-macos.tar.gz
+            artifacts/dashboard.svg
+            artifacts/dashboard.png
+          body_path: artifacts/RELEASE_NOTES.md
           generate_release_notes: true
           draft: false
           prerelease: false

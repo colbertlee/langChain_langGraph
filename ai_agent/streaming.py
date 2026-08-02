@@ -1,379 +1,228 @@
 """
-多 Agent 流式输出（Streaming Bus）
+流式输出增量差分（Streaming Delta Diff）。
 
-设计：
-- 与 MessageBus 并行，专门把"业务事件"翻译为"前端可消费的 chunk"
-- 接入 Observability 模块的 EventBus，自动继承事件流
-- 提供 sync（list-style）/ async（async iterator）/ callback 三种消费方式
-- 多 Agent 编排器在 orchestrator.* 路径都发出 chunk
+问题背景
+--------
+LangChain 1.x 的 `agent.stream(stream_mode="values")` 每个 chunk 都返回"到目前为止
+的完整 state"。前端期望拿到增量（diff），而不是每次回放全文。
 
-Chunk 类型：
-    text           普通文本块（来自 LLM 或 Agent）
-    task_started   任务分发
-    task_progress  任务进行中
-    task_complete  任务完成（含结果）
-    task_error     任务失败
-    auction_*      竞价事件
-    negotiation_*  协商事件
-    tool_call      工具调用
-    decision       编排决策
-    done           流结束
+原始实现的隐患
+~~~~~~~~~~~~
+agent.py 旧实现用 ``last_yielded_len`` 计数器，并通过 ``sanitize_output`` 对增量
+做脱敏。问题：
+
+1. ``sanitize_output`` 改长度时（例如把一段文本替换为 ``[REDACTED]``），下次切片的
+   起点偏移就错了，会出现"丢字 / 重复 / 错位"。
+2. 计数器不能跨"完整文本在某个 chunk 整体 reset"的情况兼容（旧实现靠长度变化兜不住）。
+
+新实现
+~~~~~~
+用一个独立的状态机 ``StreamDeltaTracker``：
+
+- 内部始终持有"已成功 yield 出去的累积文本"（canonical 引用）。
+- 每个 chunk 拿到 ``current_text`` 后，做"基于前缀的最长公共前缀剥离 + 残余追加"
+  计算出真实增量。
+- 对增量调 ``sanitize_output``，再做一次"再次取最长公共前缀"（避免 sanitize 引入
+  的可回退情形），保证即使 sanitize 引入冗余前缀或缩短文本也不会错位。
+- 对 CoT（``## 思考`` / ``## 回答``）分段也用同样的"基于已 yield CoT/Answer 文本"
+  的 diff 策略，而不是依赖长度计数器。
+
+这样：
+
+- Sanitize 改长度不会导致错位；
+- 模型中间"重新生成"或回退（罕见，但需兜底）走 `attempt_reset`；
+- 可并发安全地切换到 fallback provider 时直接 ``reset()``。
 """
+from __future__ import annotations
 
-import asyncio
-import time
-import uuid
-import logging
-from enum import Enum
-from typing import Any, AsyncIterator, Callable, Dict, List, Optional
 from dataclasses import dataclass, field
-
-logger = logging.getLogger(__name__)
-
-
-# ============================================================
-# Chunk 模型
-# ============================================================
-
-class ChunkType(str, Enum):
-    """块类型"""
-    TEXT = "text"
-    TASK_STARTED = "task_started"
-    TASK_PROGRESS = "task_progress"
-    TASK_COMPLETED = "task_completed"
-    TASK_FAILED = "task_failed"
-    TASK_FALLBACK = "task_fallback"
-    TOOL_CALL = "tool_call"
-    DECISION = "decision"
-    AUCTION_STARTED = "auction_started"
-    AUCTION_BID = "auction_bid"
-    AUCTION_CLOSED = "auction_closed"
-    AUCTION_AWARDED = "auction_awarded"
-    NEGOTIATION_STARTED = "negotiation_started"
-    NEGOTIATION_ROUND = "negotiation_round"
-    NEGOTIATION_RESULT = "negotiation_result"
-    ERROR = "error"
-    DONE = "done"
+from typing import Dict, Optional, Tuple
 
 
 @dataclass
-class Chunk:
-    """流式块（前端的一个 token/事件）"""
-    chunk_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    type: ChunkType = ChunkType.TEXT
-    content: str = ""
-    source: str = ""
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    timestamp: float = field(default_factory=time.time)
-    is_final: bool = False
+class StreamDeltaTracker:
+    """稳健的"完整文本 → 增量"差分状态机。
 
-    def to_dict(self) -> Dict:
+    设计原则：
+    - 已 yield 的文本作为 canonical reference，禁止长度依赖。
+    - 每个 chunk 只输出"自上次 yield 后真正的增量"。
+    - sanitize 改长度不影响后续 diff。
+    - CoT / Answer 分段独立追踪，互不干扰。
+    """
+
+    # 已成功 yield 出去的"累积回答"文本（不含 thinking）。
+    emitted_answer: str = ""
+    # 已成功 yield 出去的"累积思考"文本（thinking 段）。
+    emitted_thinking: str = ""
+    # 整个 stream 累计输出（合并 thinking + answer），用于落库 / 日志。
+    full_output: str = ""
+    # 上一 chunk 解析得到的"完整文本"快照；用于检测"模型重置 / 异常回退"。
+    last_seen_text: str = ""
+
+    # ------------------------- 核心 diff 工具 -------------------------
+
+    @staticmethod
+    def _common_prefix_len(a: str, b: str) -> int:
+        """返回 a / b 的最长公共前缀长度。
+
+        注意：是字符级（python 字符串按 codepoint），对中文/RTL 都安全。
+        """
+        # 优化：先按 utf-8 字节快速剔除，再做逐字符兜底
+        # 这里保持简单实现（输入一般不会极端大），正确性优先。
+        n = min(len(a), len(b))
+        i = 0
+        # 整段先比对，再切到 boundary
+        if a[:n] == b[:n]:
+            return n
+        while i < n and a[i] == b[i]:
+            i += 1
+        return i
+
+    @staticmethod
+    def _compute_increment(previous: str, current: str, max_drop: int = 64) -> str:
+        """计算从 ``previous`` 累积文本到 ``current`` 的真实增量。
+
+        思路：
+        1. 取最长公共前缀长度 ``common``。
+        2. 增量 = ``current[common:]``。
+        3. 若 ``common`` 比 ``previous`` 还短（即 previous 出现了"非前缀外的新字符"），
+           则视为上一 chunk 把输出整体回退 / 重置（极少见；属兜底），此时直接取
+           ``current`` 增量并打印警告。
+
+        ``max_drop`` 是容忍阈值——若 current 比 previous 整体短很多（差超过该字符数），
+        也按"重置"处理；否则按截断看待（其实不会发生，仅作安全护栏）。
+        """
+        if not previous:
+            return current
+
+        # 兜底 1：current 是空（被 sanitize 删空等），增量为空
+        if not current:
+            return ""
+
+        common = StreamDeltaTracker._common_prefix_len(previous, current)
+
+        # 兜底 2：previous 比 current 还长很多（说明 sanitize 把文本缩短了）。
+        # 此时若 previous 是 current 的前缀（扩展序列），增量依然正确；
+        # 若不是前缀，说明发生了"脱敏替换"，则全量替换 previous 为当前文本。
+        if common == len(previous):
+            # previous 整段都在 current 里出现 → 增量就是后半截
+            return current[common:]
+        if common == len(current):
+            # current 整段都在 previous 里（旧文本子串），无新字符
+            return ""
+        if len(previous) - common > max_drop:
+            # previous 比 current 多出 >= max_drop 的"非公共"前缀：
+            # 视为整体回退 / sanitize 大幅缩短 → 全量替换。
+            return f"\u0000RESET\u0000{current}"
+
+        # 常规路径：current 在 previous 后面扩展了一段
+        return current[common:]
+
+    # ------------------------- 公开 API -------------------------
+
+    def reset(self) -> None:
+        """新一次流 / 切换 fallback 时调用，重置全部状态。"""
+        self.emitted_answer = ""
+        self.emitted_thinking = ""
+        self.full_output = ""
+        self.last_seen_text = ""
+
+    def attempt_reset(self, current_text: str) -> None:
+        """当上游把累积文本整体替换（罕见）时，把内部状态对齐到 current_text。"""
+        self.emitted_answer = current_text
+        self.emitted_thinking = ""
+        self.full_output = current_text
+        self.last_seen_text = current_text
+
+    def feed(
+        self,
+        current_text: str,
+        *,
+        sanitizer=None,
+        cot_splitter=None,
+    ) -> Tuple[str, str, str]:
+        """输入当前 chunk 的完整文本，输出 (thinking_inc, answer_inc, reset_flag)。
+
+        Args:
+            current_text: 模型到现在为止产出的完整文本（含 CoT/Answer 全部）。
+            sanitizer: 可选的可调用 ``str -> str``，对输出做脱敏；
+                       不传则原样返回。
+            cot_splitter: 可选的 ``str -> (cot, answer)``，用于切分 CoT 与 Answer。
+                          不传则全部当 answer。
+
+        Returns:
+            (thinking_increment, answer_increment, reset_flag)
+            - reset_flag == "RESET" 表示本次发生了整体回退（极少见）。
+        """
+        if not current_text:
+            return "", "", ""
+
+        # 1. 与上游 last_seen 做兜底（处理"整体回退"）
+        reset_flag = ""
+        if (
+            self.last_seen_text
+            and current_text
+            and len(current_text) < len(self.last_seen_text) - 64
+        ):
+            # 整体回退（rare）
+            reset_flag = "RESET"
+            self.attempt_reset(current_text)
+            # 直接把整段视为首个增量给前端
+            if sanitizer is not None:
+                try:
+                    inc = sanitizer(current_text) or current_text
+                except Exception:
+                    inc = current_text
+            else:
+                inc = current_text
+            if cot_splitter is not None:
+                _, ans = cot_splitter(inc)
+                return "", ans, reset_flag
+            return "", inc, reset_flag
+
+        # 2. 切分 CoT / Answer（如有）
+        if cot_splitter is not None:
+            cot_full, answer_full = cot_splitter(current_text)
+        else:
+            cot_full, answer_full = "", current_text
+
+        # 3. 各自做 diff
+        thinking_inc = self._compute_increment(self.emitted_thinking, cot_full)
+        answer_inc = self._compute_increment(self.emitted_answer, answer_full)
+
+        # 4. 实时 sanitize 增量（不再 sanitize 全量，避免文本错位）。
+        # sanitizer 抛异常时降级为原样文本，绝不让 sanitize crash 主 stream。
+        if sanitizer is not None:
+            if thinking_inc:
+                try:
+                    thinking_inc = sanitizer(thinking_inc) or ""
+                except Exception:
+                    pass
+            if answer_inc:
+                try:
+                    answer_inc = sanitizer(answer_inc) or ""
+                except Exception:
+                    pass
+
+        # 5. 更新内部状态
+        self.emitted_thinking = cot_full
+        self.emitted_answer = answer_full
+        self.last_seen_text = current_text
+        # full_output 用"原始全量"组合（保留 CoT），用于落库
+        self.full_output = (
+            (cot_full + ("\n" if cot_full and answer_full else "") + answer_full)
+            if cot_full or answer_full
+            else ""
+        )
+
+        return thinking_inc, answer_inc, reset_flag
+
+    def summary(self) -> Dict[str, str]:
         return {
-            "chunk_id": self.chunk_id,
-            "type": self.type.value if isinstance(self.type, ChunkType) else str(self.type),
-            "content": self.content,
-            "source": self.source,
-            "metadata": self.metadata,
-            "timestamp": self.timestamp,
-            "is_final": self.is_final,
+            "answer": self.emitted_answer,
+            "thinking": self.emitted_thinking,
+            "full": self.full_output,
         }
 
 
-# ============================================================
-# 事件 → Chunk 转换器
-# ============================================================
-
-# 把业务事件映射到 chunk 类型
-EVENT_TO_CHUNK = {
-    "task_started": ChunkType.TASK_STARTED,
-    "task_completed": ChunkType.TASK_COMPLETED,
-    "task_failed": ChunkType.TASK_FAILED,
-    "task_fallback": ChunkType.TASK_FALLBACK,
-    "tool_call": ChunkType.TOOL_CALL,
-    "worker_selected": ChunkType.DECISION,
-    "auction_started": ChunkType.AUCTION_STARTED,
-    "auction_bid_received": ChunkType.AUCTION_BID,
-    "auction_closed": ChunkType.AUCTION_CLOSED,
-    "auction_awarded": ChunkType.AUCTION_AWARDED,
-    "negotiation_started": ChunkType.NEGOTIATION_STARTED,
-    "negotiation_proposed": ChunkType.NEGOTIATION_ROUND,
-    "negotiation_countered": ChunkType.NEGOTIATION_ROUND,
-    "negotiation_accepted": ChunkType.NEGOTIATION_RESULT,
-    "negotiation_rejected": ChunkType.NEGOTIATION_RESULT,
-    "negotiation_ended": ChunkType.NEGOTIATION_RESULT,
-}
-
-
-# ============================================================
-# StreamingBus
-# ============================================================
-
-class StreamingBus:
-    """
-    多 Agent 流式总线
-
-    角色：
-    - 把 Emitter 发出的 Chunk 分发给所有订阅者
-    - 异步流式消费（async iter）
-    - 同步回调消费（callback）
-    - 历史缓冲（用于 finalize / replay）
-    """
-
-    def __init__(self, max_history: int = 1000):
-        self._max_history = max_history
-        self._history: List[Chunk] = []
-        self._subscribers: List[Callable[[Chunk], None]] = []
-        self._lock = asyncio.Lock()
-
-    # ----------------- 发射 -----------------
-
-    async def emit(
-        self,
-        type: ChunkType,
-        content: str = "",
-        source: str = "",
-        metadata: Optional[Dict] = None,
-        is_final: bool = False,
-    ) -> Chunk:
-        """发射一个 chunk 给所有订阅者"""
-        chunk = Chunk(
-            type=type,
-            content=content,
-            source=source,
-            metadata=metadata or {},
-            is_final=is_final,
-        )
-        await self._dispatch(chunk)
-        return chunk
-
-    def emit_sync(
-        self,
-        type: ChunkType,
-        content: str = "",
-        source: str = "",
-        metadata: Optional[Dict] = None,
-        is_final: bool = False,
-    ) -> Chunk:
-        """同步版本（用于非 async 上下文）"""
-        chunk = Chunk(
-            type=type,
-            content=content,
-            source=source,
-            metadata=metadata or {},
-            is_final=is_final,
-        )
-        # 同步分发（订阅者也用同步）
-        for sub in self._subscribers:
-            try:
-                if asyncio.iscoroutinefunction(sub):
-                    # 把它放到 event loop 中跑
-                    try:
-                        loop = asyncio.get_event_loop()
-                        if loop.is_running():
-                            loop.create_task(sub(chunk))
-                    except RuntimeError:
-                        pass
-                else:
-                    sub(chunk)
-            except Exception as e:
-                logger.warning(f"Stream subscriber error: {e}")
-        # 加入历史
-        self._history.append(chunk)
-        if len(self._history) > self._max_history:
-            self._history = self._history[-self._max_history:]
-        return chunk
-
-    async def _dispatch(self, chunk: Chunk) -> None:
-        async with self._lock:
-            self._history.append(chunk)
-            if len(self._history) > self._max_history:
-                self._history = self._history[-self._max_history:]
-            subs = list(self._subscribers)
-        for sub in subs:
-            try:
-                if asyncio.iscoroutinefunction(sub):
-                    await sub(chunk)
-                else:
-                    sub(chunk)
-            except Exception as e:
-                logger.warning(f"Stream subscriber error: {e}")
-
-    # ----------------- 订阅 -----------------
-
-    def subscribe(self, callback: Callable[[Chunk], None]) -> None:
-        """注册回调消费 chunk"""
-        self._subscribers.append(callback)
-
-    def unsubscribe(self, callback: Callable) -> None:
-        if callback in self._subscribers:
-            self._subscribers.remove(callback)
-
-    # ----------------- 流式消费 -----------------
-
-    async def aiter(
-        self,
-        max_chunks: Optional[int] = None,
-        filter_type: Optional[ChunkType] = None,
-        filter_source: Optional[str] = None,
-    ) -> AsyncIterator[Chunk]:
-        """
-        异步流式消费。
-
-        简化实现：因为 emit 已经分发，新 chunk 会被订阅者收到。
-        这里用一个 asyncio.Queue 给到一个临时消费者。
-        """
-        q: asyncio.Queue = asyncio.Queue()
-
-        def cb(chunk: Chunk):
-            if filter_type and chunk.type != filter_type:
-                return
-            if filter_source and chunk.source != filter_source:
-                return
-            try:
-                q.put_nowait(chunk)
-            except asyncio.QueueFull:
-                pass
-
-        self.subscribe(cb)
-        try:
-            count = 0
-            while True:
-                if max_chunks and count >= max_chunks:
-                    break
-                try:
-                    chunk = await asyncio.wait_for(q.get(), timeout=None)
-                except asyncio.CancelledError:
-                    break
-                if chunk.is_final:
-                    yield chunk
-                    break
-                yield chunk
-                count += 1
-                # 安全：避免在没有 final 时无限阻塞
-                if max_chunks is None:
-                    # 默认无限循环直到 is_final / 外部取消
-                    pass
-        finally:
-            self.unsubscribe(cb)
-
-    # ----------------- 历史 -----------------
-
-    def list_history(
-        self,
-        type_filter: Optional[ChunkType] = None,
-        source_filter: Optional[str] = None,
-        limit: int = 200,
-    ) -> List[Chunk]:
-        out = list(self._history)
-        if type_filter:
-            out = [c for c in out if c.type == type_filter]
-        if source_filter:
-            out = [c for c in out if c.source == source_filter]
-        return out[-limit:]
-
-    def clear(self) -> None:
-        self._history.clear()
-
-
-# ============================================================
-# 默认总线 + 接入 Observability
-# ============================================================
-
-_streaming_bus: Optional[StreamingBus] = None
-
-
-def get_streaming_bus() -> StreamingBus:
-    """获取全局 StreamingBus 单例"""
-    global _streaming_bus
-    if _streaming_bus is None:
-        _streaming_bus = StreamingBus()
-        _wire_to_observability(_streaming_bus)
-    return _streaming_bus
-
-
-def reset_streaming_bus() -> None:
-    """重置全局（测试用）"""
-    global _streaming_bus
-    _streaming_bus = None
-
-
-def _wire_to_observability(bus: StreamingBus) -> None:
-    """把 StreamingBus 接入 Observability：observability 事件自动转 chunk"""
-    try:
-        from observability import get_observability
-        obs = get_observability()
-
-        def event_to_chunk(event):
-            ctype = EVENT_TO_CHUNK.get(event.event_type, ChunkType.DECISION)
-            content = f"[{event.source}] {event.event_type}"
-            metadata = dict(event.payload)
-            metadata["event_type"] = event.event_type
-            metadata["trace_id"] = event.trace_id
-            metadata["source"] = event.source
-            bus.emit_sync(
-                type=ctype,
-                content=content,
-                source=event.source,
-                metadata=metadata,
-            )
-
-        obs.events.subscribe("*", event_to_chunk)
-        logger.info("StreamingBus wired to Observability EventBus")
-    except Exception as e:
-        logger.warning(f"Failed to wire streaming bus: {e}")
-
-
-# ============================================================
-# 工具函数：从 emitter 生成器模式构造流
-# ============================================================
-
-async def stream_from_emitter(
-    bus: StreamingBus,
-    emitter_func: Callable,
-    *args,
-    max_chunks: int = 200,
-    **kwargs,
-) -> AsyncIterator[Chunk]:
-    """
-    让一个 async callable（返回 chunk 流）在自己的 bus 上运行，
-    然后外部消费者能从这个生成器拿到所有 chunk。
-
-    用法：
-        async def my_emitter():
-            await bus.emit(...)
-            await bus.emit(...)
-        async for chunk in stream_from_emitter(bus, my_emitter):
-            process(chunk)
-    """
-    q: asyncio.Queue = asyncio.Queue()
-    received = []
-
-    def cb(c):
-        try:
-            q.put_nowait(c)
-        except asyncio.QueueFull:
-            pass
-
-    bus.subscribe(cb)
-    try:
-        task = asyncio.create_task(emitter_func(*args, **kwargs))
-        try:
-            count = 0
-            while True:
-                if max_chunks and count >= max_chunks:
-                    break
-                try:
-                    chunk = await q.get()
-                except asyncio.CancelledError:
-                    break
-                if chunk.is_final:
-                    yield chunk
-                    break
-                yield chunk
-                count += 1
-            await task
-        except asyncio.CancelledError:
-            task.cancel()
-            raise
-    finally:
-        bus.unsubscribe(cb)
+__all__ = ["StreamDeltaTracker"]

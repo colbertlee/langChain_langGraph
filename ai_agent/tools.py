@@ -11,6 +11,7 @@ from security import (
     validate_safe_path,
     get_security_instance,
 )
+from concurrency import run_with_timeout
 
 _rag_instance = None
 
@@ -110,20 +111,50 @@ def query_knowledge_base(query: str) -> str:
 def load_knowledge_base(file_path: str) -> str:
     """
     加载文档到知识库
-    
+
     参数:
-        file_path: 文档文件路径（txt格式）
+        file_path: 文件路径。Day 11-12 起支持 txt / md / pdf / docx / csv / json / html
+                   （PDF/DOCX 需 pip install pypdf / docx2txt）。
+
+    返回:
+        加载结果描述。
     """
     rag = get_rag_instance()
     if not rag:
         return "知识库未初始化"
-    
+
     if not os.path.exists(file_path):
         return f"文件不存在: {file_path}"
-    
+
     try:
-        success = rag.load_documents([file_path])
-        return "文档加载成功" if success else "文档加载失败"
+        ok, summary = rag.load_documents([file_path])
+        return summary
+    except Exception as e:
+        return f"加载失败: {str(e)}"
+
+
+@tool
+def load_knowledge_base_multi(file_paths: str) -> str:
+    """
+    一次性加载多个文档到知识库（Day 11-12）。
+
+    参数:
+        file_paths: 多个文件路径，用逗号分隔（如 "a.txt,b.pdf,c.docx"）。
+
+    返回:
+        包含各文件加载结果、chunk 数量的汇总。
+    """
+    rag = get_rag_instance()
+    if not rag:
+        return "知识库未初始化"
+
+    paths = [p.strip() for p in file_paths.split(",") if p.strip()]
+    if not paths:
+        return "❌ 没有传入任何文件路径"
+
+    try:
+        ok, summary = rag.load_documents(paths)
+        return f"{'✅' if ok else '⚠️'} {summary}（格式支持: {', '.join(rag.supported_formats())}）"
     except Exception as e:
         return f"加载失败: {str(e)}"
 
@@ -436,13 +467,11 @@ def get_etf_info(etf_code: str) -> str:
     
     try:
         import akshare as ak
-        import threading
-        import time
-        
-        result = {"name": etf_code, "full_name": "N/A", "manager": "N/A", 
-                  "establish_date": "N/A", "total_assets": "N/A", 
+
+        result = {"name": etf_code, "full_name": "N/A", "manager": "N/A",
+                  "establish_date": "N/A", "total_assets": "N/A",
                   "unit_nav": "N/A", "nav_date": "N/A", "risk_level": "N/A"}
-        
+
         def fetch_info():
             try:
                 df = ak.fund_etf_fund_info_em(etf_code)
@@ -456,15 +485,23 @@ def get_etf_info(etf_code: str) -> str:
                     result["unit_nav"] = str(info.get("最新净值", "N/A"))
                     result["nav_date"] = str(info.get("净值日期", "N/A"))
                     result["risk_level"] = str(info.get("风险等级", "N/A"))
-            except:
+            except Exception:
                 pass
-        
-        thread = threading.Thread(target=fetch_info)
-        thread.start()
-        thread.join(timeout=30)
-        
+
+        # Day 3 改造：用 run_with_timeout 替代 threading.join(timeout=30) 的伪超时
+        ok, _, err = run_with_timeout(fetch_info, timeout=30.0)
+        if not ok:
+            # 超时或异常时继续走 fall-back（spot_df 查名）让用户至少能看到 ETF 名
+            pass
+
         if result["name"] == etf_code:
-            spot_df = ak.fund_etf_spot_em()
+            ok2, _, _ = run_with_timeout(
+                lambda: ak.fund_etf_spot_em(), timeout=15.0
+            )
+            if not ok2:
+                spot_df = None
+            else:
+                spot_df, = (ak.fund_etf_spot_em(),)
             if spot_df is not None and len(spot_df) > 0:
                 etf_data = spot_df[spot_df["代码"] == etf_code]
                 if len(etf_data) > 0:
@@ -501,10 +538,9 @@ def get_etf_price(etf_code: str) -> str:
     
     try:
         import akshare as ak
-        import threading
-        
+
         result = {"success": False, "data": None}
-        
+
         def fetch_price():
             try:
                 df = ak.fund_etf_spot_em()
@@ -513,12 +549,11 @@ def get_etf_price(etf_code: str) -> str:
                     if len(etf_data) > 0:
                         result["data"] = etf_data.iloc[0]
                         result["success"] = True
-            except:
+            except Exception:
                 pass
-        
-        thread = threading.Thread(target=fetch_price)
-        thread.start()
-        thread.join(timeout=30)
+
+        # Day 3 改造：真超时执行（旧版 thread.join(timeout=30) 不会真停 akshare）
+        run_with_timeout(fetch_price, timeout=30.0)
         
         if result["success"] and result["data"] is not None:
             info = result["data"]
@@ -566,10 +601,9 @@ def get_etf_history(etf_code: str, days: int = 30) -> str:
     try:
         import akshare as ak
         from datetime import datetime, timedelta
-        import threading
-        
+
         result = {"success": False, "data": None}
-        
+
         def fetch_history():
             try:
                 days_local = min(days, 365)
@@ -579,12 +613,11 @@ def get_etf_history(etf_code: str, days: int = 30) -> str:
                 if df is not None and len(df) > 0:
                     result["data"] = df.tail(10)
                     result["success"] = True
-            except:
+            except Exception:
                 pass
-        
-        thread = threading.Thread(target=fetch_history)
-        thread.start()
-        thread.join(timeout=30)
+
+        # Day 3 改造：真超时执行
+        run_with_timeout(fetch_history, timeout=30.0)
         
         if result["success"] and result["data"] is not None:
             df = result["data"]
@@ -776,10 +809,9 @@ def etf_analysis(etf_code: str, days: int = 30) -> str:
         import akshare as ak
         import statistics
         from datetime import datetime, timedelta
-        import threading
-        
+
         result = {"success": False, "closes": [], "changes": []}
-        
+
         def fetch_data():
             try:
                 days_local = min(days, 365)
@@ -790,12 +822,11 @@ def etf_analysis(etf_code: str, days: int = 30) -> str:
                     result["closes"] = [float(row.get("收盘", 0)) for _, row in df.iterrows()]
                     result["changes"] = [float(row.get("涨跌幅", 0)) for _, row in df.iterrows()]
                     result["success"] = True
-            except:
+            except Exception:
                 pass
-        
-        thread = threading.Thread(target=fetch_data)
-        thread.start()
-        thread.join(timeout=30)
+
+        # Day 3 改造：真超时执行
+        run_with_timeout(fetch_data, timeout=30.0)
         
         if result["success"] and len(result["closes"]) >= 5:
             closes = result["closes"]
@@ -857,6 +888,8 @@ def get_all_tools():
         search_web,
         query_knowledge_base,
         load_knowledge_base,
+        # Day 11-12: 多文件批量载入
+        load_knowledge_base_multi,
         read_file,
         write_file,
         delete_file,
@@ -870,5 +903,164 @@ def get_all_tools():
         get_etf_history,
         get_etf_knowledge,
         compare_etfs,
-        etf_analysis
-    ]
+        etf_analysis,
+    ] + build_minimax_tools()
+
+
+# ============================================================
+# 外部 MCP 工具 dispatcher(MiniMax MCP)
+# ============================================================
+#
+# 这些工具是"薄壳":langchain @tool 包装 + 转发到 external_mcp_manager.call_tool。
+# 仅当 minimax MCP 已 enabled & running 时,才会真正工作;
+# 否则 dispatcher 返回友好的错误信息,不会让 agent 整体崩。
+#
+# 为什么放在 tools.py 里:
+#   - get_all_tools() 已经在这里统一注册,agent 主流程不变
+#   - dispatcher 是同步函数,内部用 asyncio.run 调 external_mcp_manager.call_tool
+#   - 在新线程里跑以避免与 FastAPI / 当前 event loop 冲突
+
+def call_external_mcp(server_id: str, tool_name: str, arguments: dict) -> str:
+    """线程安全的 external MCP 调用包装(公开名,避免 tools/ 包 __init__.py 过滤掉)"""
+    import asyncio
+    import threading
+    from mcp_external import external_mcp_manager
+    from permission import is_require_approval
+
+    # HITL 拦截:若是 minimax 高危工具,先返回"已入队审批"占位,
+    # 让上层 human_in_loop 流程放行;否则直接调用 MCP
+    lc_tool_name = lc_name_for_external(server_id, tool_name)
+    if is_require_approval(lc_tool_name):
+        return json.dumps(
+            {
+                "status": "pending_approval",
+                "tool": lc_tool_name,
+                "hint": (
+                    "该工具默认需要人工审批。"
+                    "请通过 /api/hitl/decide 进行放行/拒绝后再试,"
+                    "或调用 permission.remove_require_approval_tool('{}') 关闭该拦截。"
+                ).format(lc_tool_name),
+            },
+            ensure_ascii=False,
+        )
+
+    # 复用:已经有 running loop 时,用 run_coroutine_threadsafe;否则新建 loop
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop is not None and loop.is_running():
+        # 当前线程已有 loop(几乎不会发生在同步 tool 路径上),用线程提交
+        fut = asyncio.run_coroutine_threadsafe(
+            external_mcp_manager.call_tool(server_id, tool_name, arguments or {}),
+            loop,
+        )
+        try:
+            result = fut.result(timeout=180)
+        except Exception as e:  # noqa: BLE001
+            return "external MCP call failed: {}".format(e)
+    else:
+        try:
+            result = asyncio.run(
+                external_mcp_manager.call_tool(server_id, tool_name, arguments or {})
+            )
+        except Exception as e:  # noqa: BLE001
+            return "external MCP call failed: {}".format(e)
+
+    if not isinstance(result, dict):
+        return str(result)
+    if result.get("isError"):
+        content = result.get("content") or []
+        return "[MCP error] " + (content[0].get("text") if content else "unknown error")
+    content = result.get("content") or []
+    parts = []
+    for c in content:
+        if isinstance(c, dict) and c.get("type") == "text":
+            parts.append(c.get("text", ""))
+        elif isinstance(c, dict):
+            parts.append(json.dumps(c, ensure_ascii=False))
+    return "\n".join(parts) if parts else json.dumps(result, ensure_ascii=False)
+
+
+# minimax MCP 工具描述(synthesized from minimax-mcp-js README)
+_MINIMAX_TOOL_DOCS = {
+    "text_to_audio": (
+        "minimax_text_to_audio",
+        "MiniMax 文本转语音(text_to_audio)。输入 text (必填, < 10000 字符)、voice_id、model、speed、vol、pitch、emotion、sample_rate、bitrate、channel、format、language_boost、output_directory。返回生成的音频路径或 URL。",
+    ),
+    "list_voices": (
+        "minimax_list_voices",
+        "MiniMax 列出可用音色(list_voices)。输入 voice_type: system | voice_cloning | voice_generation | music_generation | all(默认 all)。",
+    ),
+    "voice_clone": (
+        "minimax_voice_clone",
+        "MiniMax 声音克隆(voice_clone)。输入 voice_id(必填)、file(本地或 URL 音频)、text(<= 2000 字演示文本)、output_directory、is_url。⚠ 默认需 HITL 审批。",
+    ),
+    "voice_design": (
+        "minimax_voice_design",
+        "MiniMax 按提示词设计音色(voice_design)。输入 prompt(必填)、preview_text(必填)、voice_id、output_directory。⚠ 默认需 HITL 审批。",
+    ),
+    "play_audio": (
+        "minimax_play_audio",
+        "MiniMax 播放音频(play_audio)。输入 input_file_path(本地或 URL)、is_url。⚠ 默认需 HITL 审批。",
+    ),
+    "music_generation": (
+        "minimax_music_generation",
+        "MiniMax 音乐生成(music_generation)。输入 prompt(必填, 10-300 字符)、lyrics(必填, 支持 [Intro][Verse][Chorus][Bridge][Outro] 标签)、sample_rate、bitrate、format、output_directory。⚠ 默认需 HITL 审批。",
+    ),
+    "generate_video": (
+        "minimax_generate_video",
+        "MiniMax 视频生成(generate_video)。输入 prompt、first_frame_image(Base64 data URL 或公网 URL)、model、duration、resolution、output_directory、async_mode。⚠ 默认需 HITL 审批(付费)。",
+    ),
+    "image_to_video": (
+        "minimax_image_to_video",
+        "MiniMax 首帧图生视频(image_to_video)。输入 prompt(必填)、first_frame_image(必填)、model、output_directory、async_mode。⚠ 默认需 HITL 审批(付费)。",
+    ),
+    "query_video_generation": (
+        "minimax_query_video_generation",
+        "MiniMax 查询视频生成任务(query_video_generation)。输入 task_id(必填)、output_directory。",
+    ),
+    "text_to_image": (
+        "minimax_text_to_image",
+        "MiniMax 文生图(text_to_image)。输入 prompt(必填, <= 1500 字符)、model、aspect_ratio、n、prompt_optimizer、output_directory。⚠ 默认需 HITL 审批(付费)。",
+    ),
+}
+
+
+def build_minimax_tools():
+    """生成 minimax MCP 对应的 langchain tool 列表;若 MCP 未启,工具仍会注册但会返回明确错误"""
+    from langchain_core.tools import StructuredTool
+
+    tools = []
+    for tool_name, (lc_name, desc) in _MINIMAX_TOOL_DOCS.items():
+        # 闭包陷阱:每个 tool_name 都要在闭包里取当前值
+        server_id = "minimax"
+        tn = tool_name  # 拷贝一份给闭包
+
+        def _make(_lc=lc_name, _desc=desc, _server=server_id, _tn=tn):
+            def _sync(**kwargs):
+                return call_external_mcp(_server, _tn, kwargs)
+
+            async def _async(**kwargs):
+                return call_external_mcp(_server, _tn, kwargs)
+
+            return StructuredTool.from_function(
+                func=_sync,
+                coroutine=_async,
+                name=_lc,
+                description=_desc,
+            )
+
+        tools.append(_make())
+    return tools
+
+
+# server_id + 内部 tool_name → langchain 工具名(用于 HITL 集合查表)
+_LC_NAME_LOOKUP = {tn: lc for tn, (lc, _) in _MINIMAX_TOOL_DOCS.items()}
+
+
+def lc_name_for_external(server_id: str, tool_name: str) -> str:
+    if server_id == "minimax":
+        return _LC_NAME_LOOKUP.get(tool_name, "minimax_" + tool_name)
+    return "{}_{}".format(server_id, tool_name)

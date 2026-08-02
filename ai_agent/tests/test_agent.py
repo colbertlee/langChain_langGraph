@@ -453,9 +453,12 @@ class TestProviderBaseUrl:
 
 class TestApiKeyForProvider:
 
-    def test_api_key_for_provider_openai(self, monkeypatch):
-        # 确保 fixture 注入的 OPENAI_API_KEY 是 fake
-        from agent import _api_key_for_provider
+    def test_api_key_for_provider_openai(self, isolated_env, monkeypatch):
+        # isolated_env 注入 env，但 agent.py 通过 config.OPENAI_API_KEY 这种模块级
+        # 常量求值，不会在测试中途重新读 env。需要同步 monkeypatch agent 模块
+        # 里已经 import 进来的常量副本。
+        from agent import _api_key_for_provider, OPENAI_API_KEY as _agent_openai_key
+        monkeypatch.setattr("agent.OPENAI_API_KEY", "sk-test-fake")
         result = _api_key_for_provider("openai")
         # _api_key_for_provider 返回当前 env 中的 OPENAI_API_KEY
         assert isinstance(result, str)

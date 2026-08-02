@@ -140,6 +140,32 @@ class HumanInLoopGuard:
         except Exception:
             pass
 
+        # 外部 HITLNotifier（plugin 注入；可叠加多个 channel）
+        self._notifiers: List[Any] = []
+
+    # ----------------- Notifier (plugin) -----------------
+
+    def add_notifier(self, notifier: Any) -> None:
+        """追加一个 HITLNotifier（来自 plugin）；可多次调用以多通道广播。"""
+        self._notifiers.append(notifier)
+
+    def clear_notifiers(self) -> None:
+        self._notifiers.clear()
+
+    async def _dispatch_request(self, req: Any) -> None:
+        for n in self._notifiers:
+            try:
+                await n.send_request(req)
+            except Exception as e:  # 单个 channel 失败不影响其他
+                logger.warning(f"[HITL] notifier {getattr(n, 'channel_id', '?')} send_request failed: {e}")
+
+    async def _dispatch_resolution(self, req: Any) -> None:
+        for n in self._notifiers:
+            try:
+                await n.send_resolution(req)
+            except Exception as e:
+                logger.warning(f"[HITL] notifier {getattr(n, 'channel_id', '?')} send_resolution failed: {e}")
+
     # ----------------- 策略 -----------------
 
     def set_default_policy(self, policy: HITLPolicy) -> None:
@@ -198,7 +224,9 @@ class HumanInLoopGuard:
             req.decided_at = time.time()
             self._record_history(req)
             self._publish_event("hitl_requested", req)
+            await self._dispatch_request(req)
             self._publish_event("hitl_resolved", req)
+            await self._dispatch_resolution(req)
             return req
 
         if policy == HITLPolicy.ASK:
@@ -206,6 +234,7 @@ class HumanInLoopGuard:
             with self._lock:
                 self._pending[req.request_id] = req
             self._publish_event("hitl_requested", req)
+            await self._dispatch_request(req)
             # 给人类 N 秒响应，超时则按 SKIPPED 处理
             if timeout:
                 try:
@@ -226,6 +255,7 @@ class HumanInLoopGuard:
                 self._pending.pop(req.request_id, None)
             self._record_history(req)
             self._publish_event("hitl_resolved", req)
+            await self._dispatch_resolution(req)
             return req
 
         # BLOCK：阻塞等人类决策
@@ -234,6 +264,7 @@ class HumanInLoopGuard:
             self._pending[req.request_id] = req
             self._futures[req.request_id] = fut
         self._publish_event("hitl_requested", req)
+        await self._dispatch_request(req)
         logger.info(
             f"[HITL] BLOCK at {hook_point} from {requested_by}: "
             f"req_id={req.request_id}"
@@ -247,6 +278,7 @@ class HumanInLoopGuard:
                 self._futures.pop(req.request_id, None)
             self._record_history(req)
             self._publish_event("hitl_resolved", req)
+            await self._dispatch_resolution(req)
 
         return req
 

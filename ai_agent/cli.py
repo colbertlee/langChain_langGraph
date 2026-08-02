@@ -219,6 +219,18 @@ def lint(args: list[str] | None = None) -> int:
     return _run_ruff(cmd_args)
 
 
+def doctor(args: list[str] | None = None) -> int:
+    """CLI entry point: ai-agent-doctor（Day 10）。
+
+    环境预检 / 健康检查。返回非零退出码表示有 FAIL。
+    用法：
+        ai-agent-doctor           # 人类可读输出
+        ai-agent-doctor --json    # JSON 输出（适合 CI）
+    """
+    from doctor import main as doctor_main
+    return doctor_main(_argv_or(args))
+
+
 def format(args: list[str] | None = None) -> int:
     """CLI entry point: ai-agent-format
 

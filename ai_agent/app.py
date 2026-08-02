@@ -38,6 +38,25 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+# Day 8-9：统一 schema 层（见 schemas.py）
+import schemas as schemas  # noqa: E402
+from schemas import (  # noqa: E402
+    ChatRequest as _ChatRequest,
+    ApiKeyRequest as _ApiKeyRequest,
+    ModelSwitchRequest as _ModelSwitchRequest,
+    ChatResponse,
+    ClearResponse,
+    ApiKeyStatusResponse,
+    ModelSwitchResponse,
+    ModelsResponse,
+    MemoryAddRequest as _MemoryAddRequest,
+    HealthResponse,
+    DoctorResponse,        # Day 15
+    EvalsRunRequest as _EvalsRunRequest,
+    EvalsRunResponse,
+    EvalsHistoryResponse,
+)
+
 logger = logging.getLogger("app")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
@@ -647,55 +666,41 @@ class _NullProxy:
 # Pydantic 模型
 # ============================================================
 class ChatRequest(BaseModel):
-    message: str
-    session_id: Optional[str] = None
-    stream: bool = True
+    # Day 8-9：re-export 自 schemas.py（保留旧模型名以兼容现有 import）
+    """``POST /api/chat`` 请求体 schema。完整定义见 ``schemas.ChatRequest``。"""
+    pass  # 仅作为 re-export 锚点
+
+
+# 直接 alias 到 schemas，避免破坏现有 endpoint 代码
+ChatRequest = _ChatRequest
 
 
 class ApiKeyRequest(BaseModel):
-    api_key: str
-    provider: Optional[str] = "openai"
+    """``POST /api/api-key`` 请求体 schema。完整定义见 ``schemas.ApiKeyRequest``。"""
+    pass
+
+
+ApiKeyRequest = _ApiKeyRequest
 
 
 class ModelSwitchRequest(BaseModel):
-    provider: str
-    model_name: Optional[str] = None
+    """``POST /api/model/switch`` 请求体 schema。完整定义见 ``schemas.ModelSwitchRequest``。"""
+    pass
 
 
-class HITLDecision(BaseModel):
-    request_id: str
-    status: str
-    decided_by: str = "human"
-    decision_payload: Optional[Dict[str, Any]] = None
-    notes: str = ""
+ModelSwitchRequest = _ModelSwitchRequest
 
 
-class PolicyRequest(BaseModel):
-    agent_id: str
-    roles: Optional[List[str]] = None
-    capabilities: Optional[List[str]] = None
-    allowed_targets: Optional[List[str]] = None
-    allowed_tools: Optional[List[str]] = None
-    allowed_workers: Optional[List[str]] = None
+# Day 15：剩余本地 model 全部 re-export 自 schemas.py
+# （保留旧类名以兼容现有 endpoint 代码）
+HITLDecision = schemas.HITLDecision  # type: ignore[assignment]
+PolicyRequest = schemas.PolicyRequest  # type: ignore[assignment]
+PermissionEnforceRequest = schemas.PermissionEnforceRequest  # type: ignore[assignment]
+PlanRequest = schemas.PlanRequest  # type: ignore[assignment]
 
 
-class PermissionEnforceRequest(BaseModel):
-    enforce: bool
-
-
-class PlanRequest(BaseModel):
-    goal: str
-    session_id: Optional[str] = None
-
-
-class RememberRequest(BaseModel):
-    key: str
-    value: Any
-    memory_type: str = "fact"
-    scope: str = "global"
-    importance: float = 0.5
-    expires_in_seconds: Optional[float] = None
-    tags: Optional[List[str]] = None
+# 把 legacy ``RememberRequest`` 映射到 ``MemoryRememberRequest``（兼容老 endpoint）
+RememberRequest = schemas.MemoryRememberRequest  # type: ignore[assignment] # noqa: F811
 
 
 # ============================================================
@@ -725,8 +730,229 @@ async def legacy():
     raise HTTPException(status_code=404, detail="legacy not found")
 
 
+@app.get("/web/doctor")
+async def web_doctor_page(
+    request: Request,
+    json: Optional[str] = None,
+    fmt: Optional[str] = None,
+):
+    """前端 Doctor 页面（Day 15）。也支持 ``?json=1`` / ``?fmt=json`` / Accept 头。
+
+    详见 ``/diagnose`` 的同款切换逻辑。
+    """
+    wants_json = False
+    if fmt is not None:
+        wants_json = fmt.lower() == "json"
+    elif json is not None and str(json).lower() in {"1", "true", "yes"}:
+        wants_json = True
+    else:
+        accept = request.headers.get("accept", "")
+        if "application/json" in accept.lower() and "text/html" not in accept.lower():
+            wants_json = True
+
+    if wants_json:
+        from doctor import run_doctor
+        checks = run_doctor()
+        items = [c.to_dict() for c in checks]
+        summary = {
+            "ok": sum(1 for c in checks if c.status == "ok"),
+            "warn": sum(1 for c in checks if c.status == "warn"),
+            "fail": sum(1 for c in checks if c.status == "fail"),
+        }
+        return {
+            "exit_code": 1 if summary["fail"] else 0,
+            "checks": items,
+            "summary": summary,
+            "source": "web_doctor_endpoint",
+        }
+
+    p = _WEB_DIR / "doctor.html"
+    if p.exists():
+        return FileResponse(str(p))
+    raise HTTPException(status_code=404, detail="doctor.html not found")
+
+
+@app.get("/web/doctor/index")
+async def web_doctor_shortcut():
+    """Doctor 页面别名，便于记忆。"""
+    return await web_doctor_page()
+
+
+@app.get("/diagnose")
+async def web_diagnose(
+    request: Request,
+    json: Optional[str] = None,
+    fmt: Optional[str] = None,
+):
+    """智能切换：page / JSON，看 query 与 Accept 头。
+
+    优先级（高 → 低）：
+    1. 显式 ``fmt=json|page`` 强制
+    2. ``json=1``（兼容旧形式，等价 ``fmt=json``）
+    3. ``Accept`` 头含 ``application/json`` → JSON
+    4. 默认：HTML 页面
+
+    示例::
+
+        GET /diagnose              → HTML
+        GET /diagnose?json=1       → JSON
+        GET /diagnose?fmt=json     → JSON
+        GET /diagnose?fmt=page     → HTML
+        Accept: application/json + GET /diagnose → JSON
+    """
+    wants_json = False
+
+    if fmt is not None:
+        wants_json = fmt.lower() == "json"
+    elif json is not None and str(json).lower() in {"1", "true", "yes"}:
+        wants_json = True
+    else:
+        # fallback: 看 Accept 头
+        accept = request.headers.get("accept", "")
+        if "application/json" in accept.lower() and "text/html" not in accept.lower():
+            wants_json = True
+
+    if wants_json:
+        # 复用 /api/doctor 逻辑
+        from doctor import run_doctor
+        checks = run_doctor()
+        items = [c.to_dict() for c in checks]
+        summary = {
+            "ok": sum(1 for c in checks if c.status == "ok"),
+            "warn": sum(1 for c in checks if c.status == "warn"),
+            "fail": sum(1 for c in checks if c.status == "fail"),
+        }
+        return {
+            "exit_code": 1 if summary["fail"] else 0,
+            "checks": items,
+            "summary": summary,
+            "source": "diagnose_endpoint",
+        }
+
+    p = _WEB_DIR / "doctor.html"
+    if p.exists():
+        return FileResponse(str(p))
+    raise HTTPException(status_code=404, detail="doctor.html not found")
+
+
+@app.get("/api/index")
+async def api_index():
+    """侧栏导航清单（前端用）。"""
+    return {
+        "app": "AI Agent Console",
+        "version": "2.1",
+        "routes": {
+            "ui": ["/", "/dashboard", "/web/doctor", "/diagnose"],
+            "api_common": ["/api/health", "/api/version", "/api/doctor", "/api/evals/run", "/api/evals/history"],
+            "api_models": ["/api/models", "/api/agents", "/api/api-key", "/api/api-key/status", "/api/model/switch"],
+            "api_memory": ["/api/memory/recall", "/api/memory/list", "/api/memory/stats"],
+            "api_tools": ["/api/tools", "/api/upload", "/api/capabilities"],
+            "api_prompts": ["/api/prompts", "/api/user-prompts"],
+            "api_observability": ["/api/events", "/api/traces", "/api/metrics/prometheus", "/api/load_stats"],
+            "api_hitl": ["/api/hitl/pending", "/api/hitl/history", "/api/hitl/stats"],
+        },
+        "ui_actions": [
+            {"label": "🌐 健康检查", "target": "/web/doctor"},
+            {"label": "📊 监控", "target": "/dashboard"},
+            {"label": "📜 Evals 历史", "target": "/api/evals/history"},
+        ],
+    }
+
+
+# ============================================================
+# /api/doctor — 健康检查（Day 15：Web UI 接入）
+# ============================================================
+@app.get("/api/doctor", response_model=DoctorResponse, response_model_by_alias=False)
+async def doctor_check():
+    """运行 ``doctor.check_doctor()``，返回结构化结果给前端。"""
+    from doctor import run_doctor
+    checks = run_doctor()
+    items = [c.to_dict() for c in checks]
+    summary = {
+        "ok": sum(1 for c in checks if c.status == "ok"),
+        "warn": sum(1 for c in checks if c.status == "warn"),
+        "fail": sum(1 for c in checks if c.status == "fail"),
+    }
+    return {
+        "exit_code": 1 if summary["fail"] else 0,
+        "checks": items,
+        "summary": summary,
+    }
+
+
 # 静态资源（uploads）
 app.mount("/uploads", StaticFiles(directory=str(_UPLOAD_ROOT)), name="uploads")
+
+
+# ============================================================
+# /api/evals — 回归测试（Day 15：前端触发）
+# ============================================================
+@app.post("/api/evals/run", response_model=EvalsRunResponse)
+async def evals_run(req: _EvalsRunRequest | None = None):
+    """前端触发一次回归。"""
+    import argparse
+    from evals.runner import cmd_run as _cmd_run
+
+    body = req or _EvalsRunRequest()
+    ns = argparse.Namespace(case=body.case, all=bool(body.all))
+    try:
+        rc = _cmd_run(ns)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"evals runner crashed: {e!s}")
+
+    runs_dir = Path(__file__).parent / "evals" / "runs"
+    latest = None
+    if runs_dir.exists():
+        sub = sorted([d for d in runs_dir.iterdir() if d.is_dir()], reverse=True)
+        if sub:
+            latest = str(sub[0])
+    summary_data = None
+    if latest and (Path(latest) / "summary.json").exists():
+        try:
+            summary_data = json.loads(
+                Path(latest).joinpath("summary.json").read_text(encoding="utf-8")
+            )
+        except Exception:
+            summary_data = None
+    # 用 by_alias=True 让前端 camelCase；Python snake_case 由
+    # response_model_exclude_unset / response_model_by_alias 控制
+    # 用 python 字段名返回（snake_case），避免 alias 转换。schema 定义仍允许
+    # 前端 input 用 camelCase（populate_by_name=True）。
+    return {
+        "exit_code": rc,
+        "latest_run": latest,
+        "summary": summary_data,
+    }
+
+
+# 让 /api/evals/history 也走 Python 字段名（前端用 camelCase 用 field_alias 转换）
+@app.get("/api/evals/history", response_model=EvalsHistoryResponse, response_model_by_alias=False)
+async def evals_history(limit: int = 10):
+    """最近 N 次跑的概要列表（供前端页面）"""
+    from evals.runner import RUNS_DIR
+    if not RUNS_DIR.exists():
+        return {"runs": []}
+    sub = sorted([d for d in RUNS_DIR.iterdir() if d.is_dir()], reverse=True)
+    runs = []
+    for r in sub[:limit]:
+        s = r / "summary.json"
+        if not s.exists():
+            continue
+        try:
+            data = json.loads(s.read_text(encoding="utf-8"))
+            runs.append(
+                {
+                    "id": r.name,
+                    "started_at": data.get("started_at"),
+                    "finished_at": data.get("finished_at"),
+                    "total": data.get("cases_total", 0),
+                    "passed": data.get("cases_passed", 0),
+                    "failed": data.get("cases_failed", 0),
+                }
+            )
+        except Exception:
+            continue
+    return {"runs": runs}
 
 # 阶段 A：把 web/ 目录作为静态资源挂载（用于演示 HTML 等）
 try:
@@ -1138,8 +1364,9 @@ async def memory_stats():
 # 内部存储走 UnifiedMemoryStore（global scope），前端无需关心细节。
 # ============================================================
 
-class _MemoryAddRequest(BaseModel):
-    content: str
+# Day 15：迁移 _MemoryAddRequest → schemas.MemoryAddRequest（仅保留 ``content``）
+_MemoryAddRequest = schemas.MemoryAddRequest  # type: ignore[assignment]
+# 兼容老用法 —— 仅暴露 content 字段（fill in default=True 让旧代码可省略）
 
 
 @app.post("/api/memory/add")
@@ -1363,6 +1590,300 @@ async def prometheus_metrics():
     proxy = get_proxy()
     text = proxy.get_prometheus_metrics()
     return Response(content=text, media_type="text/plain; version=0.0.4")
+
+
+# ============================================================
+# Token 用量 Dashboard（v0.5 新增）
+# 暴露：
+#   GET  /api/token/usage                       — 当前快照（totals/by_model/scope/...）
+#   GET  /api/token/usage/history?range=24h      — timeline 子集（按 range 过滤）
+#   GET  /api/token/budget                      — 当前预算/告警/Prometheus 配置
+#   POST /api/token/budget                      — 运行期更新预算/告警/cooldown/aggregation
+#   POST /api/token/prometheus                  — 运行期更新 Prometheus/Pushgateway 配置
+#   POST /api/token/prometheus/push             — 手动 push 一次到 Pushgateway
+#   POST /api/token/alert/ack                   — 确认最近一次告警（清空）
+# ============================================================
+
+
+def _get_token_snapshot() -> dict[str, Any]:
+    """统一从 registry 读 snapshot（保证 in-process 状态）。"""
+    try:
+        from agent_middleware import get_token_usage_snapshot
+        return get_token_usage_snapshot()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("token snapshot failed: %s", e)
+        return {
+            "ok": False,
+            "error": str(e),
+            "totals": {"input": 0, "output": 0, "total": 0, "cost_usd": 0.0},
+            "by_model": [],
+            "scope": {},
+            "last_alert": None,
+            "history": [],
+            "history_max": 0,
+            "history_bucket_seconds": 60,
+            "prometheus": {
+                "enabled": False, "http_port": None,
+                "pushgateway_url": None, "pushgateway_job": None,
+                "push_to_gateway_every_n": None, "grouping_key": {},
+            },
+            "config": {
+                "alert_thresholds": [],
+                "alert_cooldown": {},
+                "alert_aggregation_window": 0.0,
+                "alert_aggregation_jitter": 0.0,
+                "budget_persist_path": None,
+            },
+        }
+
+
+_APP_TOKEN_DASHBOARD_BOOTSTRAPPED = {"done": False}
+
+
+def _bootstrap_token_dashboard_defaults() -> None:
+    """首次访问时把 dashboard 默认配置应用到所有实例。
+
+    目的：用户直接 import app.py 但没经过 ``init_agent`` 时
+    （或在 _NullProxy 路径下），仍能展示 dashboard UI。
+    """
+    if _APP_TOKEN_DASHBOARD_BOOTSTRAPPED["done"]:
+        return
+    try:
+        from agent_middleware import _TOKEN_USAGE_REGISTRY, TokenUsageConfig
+        # 仅当所有实例都用 history_max=0 默认值时才注入 dashboard defaults
+        if not _TOKEN_USAGE_REGISTRY:
+            return
+        for inst in _TOKEN_USAGE_REGISTRY:
+            try:
+                cfg = inst.config
+                if cfg.history_max <= 0:
+                    cfg.history_max = 720
+                if cfg.history_bucket_seconds <= 0:
+                    cfg.history_bucket_seconds = 60
+            except Exception:  # noqa: BLE001
+                continue
+    except Exception:  # noqa: BLE001
+        pass
+    _APP_TOKEN_DASHBOARD_BOOTSTRAPPED["done"] = True
+
+
+@app.get("/api/token/usage")
+async def token_usage():
+    _bootstrap_token_dashboard_defaults()
+    return _get_token_snapshot()
+
+
+@app.get("/api/token/usage/history")
+async def token_usage_history(range: str = "24h", bucket: str = "auto"):
+    """返回 timeline 子集。
+
+    - range: ``24h`` / ``1h`` / ``7d`` / ``all`` / 数字秒
+    - bucket: ``auto`` / ``60`` / ``300`` / ``3600``（前后端约定的桶大小）
+    """
+    snap = _get_token_snapshot()
+    history = list(snap.get("history") or [])
+    now_ts = int(time.time())
+    # 解析 range
+    rseconds: int | None
+    if range == "all":
+        rseconds = None
+    elif range.endswith("h"):
+        try:
+            rseconds = int(range[:-1]) * 3600
+        except Exception:
+            rseconds = 24 * 3600
+    elif range.endswith("d"):
+        try:
+            rseconds = int(range[:-1]) * 86400
+        except Exception:
+            rseconds = 24 * 3600
+    elif range.endswith("m"):
+        try:
+            rseconds = int(range[:-1]) * 60
+        except Exception:
+            rseconds = 24 * 3600
+    else:
+        try:
+            rseconds = int(range)
+        except Exception:
+            rseconds = 24 * 3600
+    if rseconds is not None:
+        cutoff = now_ts - rseconds
+        history = [h for h in history if int(h.get("bucket_ts", 0)) >= cutoff]
+    # bucket 聚合
+    if bucket != "auto":
+        try:
+            bs = int(bucket)
+        except Exception:
+            bs = 0
+        if bs > 0:
+            agg: dict[int, dict[str, Any]] = {}
+            for h in history:
+                t = int(h.get("bucket_ts", 0))
+                key = (t // bs) * bs
+                cell = agg.get(key)
+                if cell is None:
+                    cell = {
+                        "bucket_ts": key,
+                        "input": 0, "output": 0, "total": 0,
+                        "cost_usd": 0.0, "by_model": {},
+                    }
+                    agg[key] = cell
+                cell["input"] += int(h.get("input", 0))
+                cell["output"] += int(h.get("output", 0))
+                cell["total"] += int(h.get("total", 0))
+                cell["cost_usd"] += float(h.get("cost_usd", 0.0))
+                for mn, md in (h.get("by_model") or {}).items():
+                    mb = cell["by_model"].get(mn)
+                    if mb is None:
+                        mb = {"input": 0, "output": 0, "total": 0, "cost_usd": 0.0}
+                        cell["by_model"][mn] = mb
+                    mb["input"] += int(md.get("input", 0))
+                    mb["output"] += int(md.get("output", 0))
+                    mb["total"] += int(md.get("total", 0))
+                    mb["cost_usd"] += float(md.get("cost_usd", 0.0))
+            history = sorted(agg.values(), key=lambda x: x["bucket_ts"])
+            # 圆整
+            for h in history:
+                h["cost_usd"] = round(float(h["cost_usd"]), 6)
+                for mn in (h.get("by_model") or {}).values():
+                    mn["cost_usd"] = round(float(mn.get("cost_usd", 0.0)), 6)
+    return {
+        "ok": True,
+        "range": range,
+        "bucket": bucket,
+        "count": len(history),
+        "history": history,
+        "history_max": snap.get("history_max", 0),
+        "history_bucket_seconds": snap.get("history_bucket_seconds", 60),
+    }
+
+
+@app.get("/api/token/budget")
+async def token_budget_get():
+    snap = _get_token_snapshot()
+    return {
+        "ok": True,
+        "config": snap.get("config", {}),
+        "scope": snap.get("scope", {}),
+        "prometheus": snap.get("prometheus", {}),
+    }
+
+
+@app.post("/api/token/budget")
+async def token_budget_post(payload: Dict[str, Any] = Body(default_factory=dict)):
+    """运行期更新预算 / 告警 / cooldown / aggregation / 历史桶。"""
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="payload must be an object")
+    # 校验类型
+    patch: dict[str, Any] = {}
+    float_fields = (
+        "per_call_budget_usd", "cumulative_budget_usd",
+        "daily_budget_usd", "weekly_budget_usd", "monthly_budget_usd",
+        "alert_aggregation_window",
+    )
+    for k in float_fields:
+        if k in payload and payload[k] is not None:
+            try:
+                patch[k] = float(payload[k])
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail=f"{k} must be a number")
+    int_fields = ("history_max", "history_bucket_seconds")
+    for k in int_fields:
+        if k in payload and payload[k] is not None:
+            try:
+                patch[k] = int(payload[k])
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail=f"{k} must be an integer")
+    if "alert_thresholds" in payload and payload["alert_thresholds"] is not None:
+        ts = payload["alert_thresholds"]
+        if not isinstance(ts, list):
+            raise HTTPException(status_code=400, detail="alert_thresholds must be list")
+        norm: list[list[Any]] = []
+        for t in ts:
+            if isinstance(t, (list, tuple)) and len(t) == 2:
+                norm.append([float(t[0]), str(t[1])])
+            else:
+                raise HTTPException(status_code=400, detail="alert_thresholds items must be [ratio, severity]")
+        patch["alert_thresholds"] = norm
+    if "alert_cooldown" in payload and payload["alert_cooldown"] is not None:
+        cd = payload["alert_cooldown"]
+        if not isinstance(cd, dict):
+            raise HTTPException(status_code=400, detail="alert_cooldown must be object")
+        patch["alert_cooldown"] = {str(k): float(v) for k, v in cd.items()}
+    if "alert_aggregation_jitter" in payload and payload["alert_aggregation_jitter"] is not None:
+        j = payload["alert_aggregation_jitter"]
+        if isinstance(j, (list, tuple)) and len(j) == 2:
+            patch["alert_aggregation_jitter"] = [float(j[0]), float(j[1])]
+        else:
+            try:
+                patch["alert_aggregation_jitter"] = float(j)
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail="alert_aggregation_jitter must be float or [neg, pos]")
+    if "budget_persist_path" in payload and payload["budget_persist_path"]:
+        patch["budget_persist_path"] = str(payload["budget_persist_path"])
+    try:
+        from agent_middleware import update_token_budget
+        result = update_token_budget(patch)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"update_token_budget failed: {e}")
+    return {"ok": True, "patched": patch, "config": result.get("config", {})}
+
+
+@app.post("/api/token/prometheus")
+async def token_prometheus_post(payload: Dict[str, Any] = Body(default_factory=dict)):
+    """运行期更新 Prometheus / Pushgateway 配置。"""
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="payload must be an object")
+    patch: dict[str, Any] = {}
+    if "pushgateway_url" in payload:
+        url = payload["pushgateway_url"]
+        patch["pushgateway_url"] = str(url) if url else None
+    if "pushgateway_job" in payload:
+        job = payload["pushgateway_job"]
+        patch["pushgateway_job"] = str(job) if job else None
+    if "push_to_gateway_every_n" in payload and payload["push_to_gateway_every_n"] is not None:
+        try:
+            patch["push_to_gateway_every_n"] = max(1, int(payload["push_to_gateway_every_n"]))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="push_to_gateway_every_n must be int")
+    if "grouping_key" in payload and payload["grouping_key"] is not None:
+        gk = payload["grouping_key"]
+        if not isinstance(gk, dict):
+            raise HTTPException(status_code=400, detail="grouping_key must be object")
+        patch["grouping_key"] = {str(k): str(v) for k, v in gk.items()}
+    try:
+        from agent_middleware import update_token_prometheus
+        result = update_token_prometheus(patch)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"update_token_prometheus failed: {e}")
+    return {"ok": True, "patched": patch, "prometheus": result.get("prometheus", {})}
+
+
+@app.post("/api/token/prometheus/push")
+async def token_prometheus_push():
+    """主动 push 一次到 Pushgateway（不等累积到 every_n）。"""
+    try:
+        from agent_middleware import push_token_prometheus_now
+        result = push_token_prometheus_now()
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"push_token_prometheus_now failed: {e}")
+    return {"ok": True, **result}
+
+
+@app.post("/api/token/alert/ack")
+async def token_alert_ack():
+    """确认最近一次告警（清空 _last_alert）。"""
+    try:
+        from agent_middleware import get_token_usage_registry
+        for inst in get_token_usage_registry():
+            try:
+                inst.reset_last_alert()
+            except Exception:  # noqa: BLE001
+                continue
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"reset_last_alert failed: {e}")
+    return {"ok": True}
 
 
 # ============================================================
@@ -1606,6 +2127,97 @@ async def reset_performance_stats():
 
 
 # ============================================================
+# Plugin Manager API（不依赖 AIAgentExtension 单例）
+# ============================================================
+
+@app.get("/plugins")
+async def plugins_page():
+    p = _WEB_DIR / "plugins.html"
+    if p.exists():
+        return FileResponse(str(p))
+    return {"message": "plugins.html not found"}
+
+
+def _pm():
+    from plugin_manager import get_plugin_manager
+    return get_plugin_manager()
+
+
+@app.get("/api/plugins")
+async def list_plugins():
+    """列出所有已安装插件（含 disabled / error）。"""
+    mgr = _pm()
+    return {
+        "plugins": [e.to_dict() for e in mgr.list_installed()],
+        "stats": mgr.stats(),
+    }
+
+
+@app.get("/api/plugins/enabled")
+async def list_enabled_plugins():
+    return {"plugins": [e.to_dict() for e in _pm().list_enabled()]}
+
+
+@app.get("/api/plugins/stats")
+async def get_plugin_stats():
+    return _pm().stats()
+
+
+@app.post("/api/plugins/install")
+async def install_plugin(payload: Dict[str, Any]):
+    """根据 manifest dict 安装插件（body 形如 {"manifest": {...}, "config": {...}}）。"""
+    from plugin_manager import PluginManifest
+    mgr = _pm()
+    body = payload or {}
+    manifest = PluginManifest.from_dict(body.get("manifest") or {})
+    config = body.get("config") or {}
+    entry = mgr.install(manifest, config=config)
+    return entry.to_dict()
+
+
+@app.post("/api/plugins/{name}/enable")
+async def enable_plugin(name: str):
+    entry = _pm().enable(name)
+    return entry.to_dict()
+
+
+@app.post("/api/plugins/{name}/disable")
+async def disable_plugin(name: str):
+    entry = _pm().disable(name)
+    return entry.to_dict()
+
+
+@app.delete("/api/plugins/{name}")
+async def uninstall_plugin(name: str):
+    ok = _pm().uninstall(name)
+    return {"name": name, "uninstalled": ok}
+
+
+@app.get("/api/plugins/find")
+async def find_plugin_by_capability(capability: str):
+    entries = _pm().find_by_capability(capability)
+    return {"capability": capability, "plugins": [e.to_dict() for e in entries]}
+
+
+@app.post("/api/plugins/save")
+async def save_plugins(payload: Optional[Dict[str, Any]] = None):
+    path = (payload or {}).get("path") or "plugins.json"
+    if not os.path.isabs(path):
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), path)
+    _pm().save_state(path)
+    return {"saved_to": path}
+
+
+@app.post("/api/plugins/load")
+async def load_plugins(payload: Optional[Dict[str, Any]] = None):
+    path = (payload or {}).get("path") or "plugins.json"
+    if not os.path.isabs(path):
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), path)
+    n = _pm().load_state(path)
+    return {"loaded": n, "path": path}
+
+
+# ============================================================
 # 启动
 # ============================================================
 def run(host: str = "0.0.0.0", port: int = 8000):
@@ -1616,6 +2228,17 @@ def run(host: str = "0.0.0.0", port: int = 8000):
         logger.info("Proxy initialized")
     except Exception as e:
         logger.warning(f"Proxy init warning: {e}")
+
+    # ---- Plugin bootstrap（启动时一次性加载 rag_backends / auth_backends） ----
+    try:
+        from multi_agent_integration import bootstrap_builtin_plugins
+        plugins_cfg = os.environ.get("PLUGINS_CONFIG", "plugins.json")
+        if not os.path.isabs(plugins_cfg):
+            plugins_cfg = os.path.join(os.path.dirname(os.path.abspath(__file__)), plugins_cfg)
+        result = bootstrap_builtin_plugins(config_path=plugins_cfg)
+        logger.info(f"Plugins bootstrap: {result}")
+    except Exception as e:
+        logger.warning(f"Plugin bootstrap failed (non-fatal): {e}")
 
     uvicorn.run(app, host=host, port=port, log_level="info")
 

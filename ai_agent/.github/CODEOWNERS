@@ -1,0 +1,33 @@
+# CODEOWNERS（Day 20：auto-archive approval gate）
+#
+# Each line is a file pattern followed by one or more owners.
+# Order matters; later patterns take precedence.
+#
+# 详细配置见 docs/auto-archive-approval.md。
+#
+# 注意：把 @<your-org>/maintainers 替换为团队真实的 team slug。
+
+# ─────────────── 默认 owners（匹配所有）───────────────
+*                                         @<your-org>/devs
+
+# ─────────────── auto-archive / archive / 相关 ────────────────
+# Day 20：auto-archive/* 分支必须 maintainer review
+/auto-archive/                            @<your-org>/maintainers
+/tests-archive/                           @<your-org>/maintainers
+/tools/archive_legacy.py                  @<your-org>/maintainers
+/tools/archive_acceptance.py              @<your-org>/maintainers
+/tools/archive_trend.py                   @<your-org>/maintainers
+/tools/archive_changelog.py               @<your-org>/maintainers
+/tools/archive_dashboard.py               @<your-org>/maintainers
+
+# ─────────────── workflows ────────────────
+/.github/workflows/release-build.yml      @<your-org>/maintainers
+/.github/workflows/weekly-archive.yml     @<your-org>/maintainers
+/.github/workflows/daily-doctor.yml       @<your-org>/maintainers
+/.github/workflows/nightly-evals.yml      @<your-org>/maintainers
+
+# ─────────────── 文档 ────────────────
+/docs/auto-archive-approval.md            @<your-org>/maintainers
+/docs/archive-acceptance.md               @<your-org>/maintainers
+/docs/nightly-notify.md                   @<your-org>/maintainers
+/docs/web-ui-deploy.md                    @<your-org>/maintainers

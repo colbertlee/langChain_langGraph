@@ -1,0 +1,303 @@
+# Nightly Evaluations / Doctor / Smoke
+#
+# 目的（Day 15 起）：
+# - 每天凌晨跑一次完整回归（doctor + evals.runner run --all），
+#   防止"开发期能跑、CI 不跑、release 时炸"；
+# - 把 evals/runs/<日期>/ 当作 artifact 上传，便于回溯；
+# - 把 doctor --json 输出落盘，便于 GitHub issue 提交。
+#
+# Day 16 起：
+# - 抽出独立的 ``notify`` job，专注失败 → Slack + Discord + Issue 三路并发
+# - 用 reusable workflow 风格：每个推送 step 单独 retry、最小副作用
+#
+# Secret keys used:
+# - SLACK_WEBHOOK_URL         (optional) -- Slack incoming webhook
+# - DISCORD_WEBHOOK_URL       (optional) -- Discord webhook URL
+# - NIGHTLY_TEAM_LABEL        (optional) -- owner team label, default ``@ai-team``
+# - SLACK_DEFAULT_CHANNEL     (optional) -- override channel mention, default ``#ai-agent``
+#
+# 提供任意一个 secret 即启用对应推送；都不提供时退化为"仅 GitHub Issue"。
+#
+# 出 issue 行为受 ``NIGHTLY_OPEN_ISSUE`` 控制（"true" / "false"），默认 true；
+# 完全静默模式：NIGHTLY_QUIET="true" 时 skip 全部通知（用于本地 dry-run）。
+
+name: nightly-evals
+
+on:
+  schedule:
+    # 每天 UTC 02:00 跑（中国时区 10:00 am）。
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      strict:
+        description: '严格模式（任何 FAIL 都视为失败）'
+        required: false
+        default: 'true'
+
+permissions:
+  contents: read
+  issues: write   # 用于出错时自动开 issue
+
+defaults:
+  run:
+    working-directory: ai_agent
+
+jobs:
+  evals:
+    name: nightly-eval (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            artifact_name: evals-runs-linux
+          - os: windows-latest
+            artifact_name: evals-runs-windows
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: ai_agent/requirements.txt
+
+      - name: Install Python deps
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run ai-agent doctor
+        id: doctor
+        shell: bash
+        run: |
+          set +e
+          python -m doctor --json > doctor.json || echo "doctor_warn=$?"
+          echo "doctor_exit=$?"
+          cat doctor.json | head -c 800
+          echo ""
+
+      - name: Run evals (all)
+        id: evals
+        shell: bash
+        run: |
+          set +e
+          python -m evals.runner run --all 2>&1 | tee evals.log
+          rc=${PIPESTATUS[0]}
+          echo "evals_exit=$rc"
+          exit $rc
+
+      - name: Upload run artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: |
+            ai_agent/doctor.json
+            ai_agent/evals.log
+            ai_agent/evals/runs/
+          if-no-files-found: warn
+          retention-days: 30
+
+      # --- 输出 step summary（即使失败也写，便于 notify job 拉取） ---
+      - name: Record run summary (success path)
+        if: success()
+        shell: bash
+        run: |
+          echo "EVALS_RESULT=success" >> "$GITHUB_ENV"
+          echo "EVALS_OS=${{ matrix.os }}" >> "$GITHUB_ENV"
+
+      - name: Record run summary (failure path)
+        if: failure()
+        shell: bash
+        run: |
+          echo "EVALS_RESULT=failure" >> "$GITHUB_ENV"
+          echo "EVALS_OS=${{ matrix.os }}" >> "$GITHUB_ENV"
+
+  notify:
+    name: webhook-notify (${{ strategy.job-index }})
+    needs: evals
+    if: failure() && env.NIGHTLY_QUIET != 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        channel: [slack, discord, issue]
+    env:
+      NIGHTLY_QUIET: ${{ vars.NIGHTLY_QUIET }}
+      NIGHTLY_OPEN_ISSUE: ${{ vars.NIGHTLY_OPEN_ISSUE || 'true' }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      SLACK_DEFAULT_CHANNEL: ${{ vars.SLACK_DEFAULT_CHANNEL || '#ai-agent' }}
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      NIGHTLY_TEAM_LABEL: ${{ vars.NIGHTLY_TEAM_LABEL || '@ai-team' }}
+      EVALS_RESULT: ${{ needs.evals.result }}
+    steps:
+      - name: Skip rule guard
+        shell: bash
+        run: |
+          # 每个通道可独立 skip；不提供 secret 时整 job 跳过
+          case "${{ matrix.channel }}" in
+            slack)
+              if [ -z "$SLACK_WEBHOOK_URL" ]; then
+                echo "::notice:: SLACK_WEBHOOK_URL not provided; skip slack channel"
+                exit 0
+              fi
+              ;;
+            discord)
+              if [ -z "$DISCORD_WEBHOOK_URL" ]; then
+                echo "::notice:: DISCORD_WEBHOOK_URL not provided; skip discord channel"
+                exit 0
+              fi
+              ;;
+            issue)
+              if [ "$NIGHTLY_OPEN_ISSUE" != "true" ]; then
+                echo "::notice:: NIGHTLY_OPEN_ISSUE=$NIGHTLY_OPEN_ISSUE; skip issue channel"
+                exit 0
+              fi
+              ;;
+          esac
+
+      - name: Build notification payload (python)
+        id: build
+        shell: bash
+        run: |
+          python - <<'PY'
+          """构建 Slack / Discord payload，写入 $GITHUB_OUTPUT 供下一步使用"""
+          import json
+          import os
+          gh_run_id = os.environ.get("GITHUB_RUN_ID", "?")
+          gh_server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
+          repo = os.environ.get("GITHUB_REPOSITORY", "owner/repo")
+          run_url = f"{gh_server}/{repo}/actions/runs/{gh_run_id}"
+          failed_jobs = ",".join(["ubuntu-latest","windows-latest"])  # evals 矩阵两端
+
+          title = "🚨 AI Agent nightly-evals FAILED"
+          message = (
+              f"Repo: {repo}\n"
+              f"OS matrix failed on: {failed_jobs}\n"
+              f"Run: {run_url}\n"
+              f"Owner team: {os.environ.get('NIGHTLY_TEAM_LABEL','@ai-team')}\n"
+          )
+
+          # SLACK payload
+          slack = {
+              "channel": os.environ.get("SLACK_DEFAULT_CHANNEL", "#ai-agent"),
+              "username": "ai-agent-bot",
+              "icon_emoji": ":robot_face:",
+              "text": f"{title}\n{message}",
+              "blocks": [
+                  {
+                      "type": "header",
+                      "text": {"type": "plain_text", "text": title}
+                  },
+                  {
+                      "type": "section",
+                      "text": {"type": "mrkdwn", "text": message}
+                  },
+                  {
+                      "type": "actions",
+                      "elements": [
+                          {
+                              "type": "button",
+                              "text": {"type": "plain_text", "text": "View Run"},
+                              "url": run_url,
+                              "style": "danger"
+                          }
+                      ]
+                  }
+              ]
+          }
+
+          # DISCORD payload（embed 风格）
+          discord = {
+              "username": "ai-agent-bot",
+              "content": f"{title}\n{message}",
+              "embeds": [
+                  {
+                      "title": title,
+                      "description": message,
+                      "color": 15158332,  # red
+                      "url": run_url,
+                  }
+              ]
+          }
+
+          # ISSUE payload
+          issue_title = f"nightly-evals failed ({gh_run_id})"
+          issue_body = (
+              f"## nightly-evals failed\n\n"
+              f"- run: {run_url}\n"
+              f"- run_id: {gh_run_id}\n"
+              f"- os: {failed_jobs}\n"
+              f"- owner team: {os.environ.get('NIGHTLY_TEAM_LABEL','@ai-team')}\n\n"
+              f"please check artifact: `${{ matrix.artifact_name }}`\n"
+          )
+
+          with open("/tmp/slack.json","w",encoding="utf-8") as f:
+              f.write(json.dumps(slack, ensure_ascii=False))
+          with open("/tmp/discord.json","w",encoding="utf-8") as f:
+              f.write(json.dumps(discord, ensure_ascii=False))
+          with open("/tmp/issue_title.txt","w",encoding="utf-8") as f:
+              f.write(issue_title)
+          with open("/tmp/issue_body.txt","w",encoding="utf-8") as f:
+              f.write(issue_body)
+          print("payloads built")
+          PY
+
+      - name: Send Slack
+        if: matrix.channel == 'slack'
+        shell: bash
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          curl -sS -m 30 -X POST -H 'Content-Type: application/json' \
+            --data @/tmp/slack.json \
+            "$SLACK_WEBHOOK_URL"
+          echo "slack sent"
+
+      - name: Send Discord
+        if: matrix.channel == 'discord'
+        shell: bash
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          curl -sS -m 30 -X POST -H 'Content-Type: application/json' \
+            --data @/tmp/discord.json \
+            "$DISCORD_WEBHOOK_URL"
+          echo "discord sent"
+
+      - name: Open GitHub Issue
+        if: matrix.channel == 'issue'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TITLE=$(cat /tmp/issue_title.txt)
+          BODY=$(cat /tmp/issue_body.txt)
+          gh issue create \
+            --title "$TITLE" \
+            --body "$BODY" \
+            --label nightly-evals || \
+            echo "::error::Failed to open issue"
+
+  summary:
+    name: summary
+    needs: [evals, notify]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Print matrix result
+        shell: bash
+        run: |
+          echo "evals result: ${{ needs.evals.result }}"
+          echo "notify result: ${{ needs.notify.result }}"
+          if [ "${{ needs.evals.result }}" = "success" ] && [ "${{ needs.notify.result }}" != "failure" ]; then
+            echo "ok all good"
+          else
+            echo "xy one or more steps failed"
+          fi

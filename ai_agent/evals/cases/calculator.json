@@ -1,0 +1,63 @@
+[
+  {
+    "name": "calc_add_simple",
+    "category": "calculator",
+    "input": "1 + 1",
+    "expected_output": 2,
+    "tolerance": 0
+  },
+  {
+    "name": "calc_mul_simple",
+    "category": "calculator",
+    "input": "2 * 3",
+    "expected_output": 6,
+    "tolerance": 0
+  },
+  {
+    "name": "calc_combined",
+    "category": "calculator",
+    "input": "(10 + 2) * 3 - 5",
+    "expected_output": 31,
+    "tolerance": 0
+  },
+  {
+    "name": "calc_decimal",
+    "category": "calculator",
+    "input": "0.1 + 0.2",
+    "expected_output": 0.3,
+    "tolerance": 0.001
+  },
+  {
+    "name": "calc_negative",
+    "category": "calculator",
+    "input": "-2 * 3",
+    "expected_output": -6,
+    "tolerance": 0
+  },
+  {
+    "name": "calc_pow",
+    "category": "calculator",
+    "input": "2 ** 10",
+    "expected_output": 1024,
+    "tolerance": 0
+  },
+  {
+    "name": "calc_div_floor",
+    "category": "calculator",
+    "input": "10 // 3",
+    "expected_output": 3,
+    "tolerance": 0
+  },
+  {
+    "name": "calc_invalid_division_by_zero",
+    "category": "calculator",
+    "input": "1 / 0",
+    "expect_error": true
+  },
+  {
+    "name": "calc_disallowed_builtin",
+    "category": "calculator",
+    "input": "__import__('os').system('echo hi')",
+    "expect_error": true
+  }
+]

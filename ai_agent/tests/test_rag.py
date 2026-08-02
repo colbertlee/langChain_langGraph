@@ -15,7 +15,7 @@ def rag(mock_model):
     """创建 RAGModule 实例，mock 掉所有外部依赖。"""
     with patch("rag.OpenAIEmbeddings") as mock_emb, \
          patch("rag.Chroma") as mock_chroma, \
-         patch("rag.TextLoader") as mock_loader, \
+         patch("rag.DocumentLoaderRegistry") as mock_registry, \
          patch("rag.RecursiveCharacterTextSplitter") as mock_splitter:
         # 默认 embedding model
         mock_emb.return_value = MagicMock()
@@ -30,8 +30,8 @@ def rag(mock_model):
         mock_vs.as_retriever.return_value = MagicMock()
         mock_chroma.from_documents.return_value = mock_vs
 
-        # TextLoader
-        mock_loader.return_value.load.return_value = [MagicMock(page_content="hello")]
+        # DocumentLoaderRegistry.load → 返回一个 page_content 列表
+        mock_registry.load.return_value = [MagicMock(page_content="hello")]
 
         from rag import RAGModule
         module = RAGModule(mock_model, api_key="sk-fake")
@@ -40,7 +40,7 @@ def rag(mock_model):
             "model": mock_model,
             "embeddings": mock_emb,
             "chroma": mock_chroma,
-            "loader": mock_loader,
+            "registry": mock_registry,
             "splitter": mock_splitter,
             "vectorstore": mock_vs,
         }
@@ -118,17 +118,18 @@ class TestLoadDocuments:
 
     def test_load_documents_success(self, rag):
         module, mocks = rag
-        result = module.load_documents(["doc1.txt", "doc2.txt"])
-        assert result is True
+        ok, summary = module.load_documents(["doc1.txt", "doc2.txt"])
+        assert ok is True
         # Chroma.from_documents 被调用
         mocks["chroma"].from_documents.assert_called_once()
 
     def test_load_documents_empty(self, rag):
         module, mocks = rag
-        # 模拟 loader 全部失败
-        mocks["loader"].return_value.load.side_effect = Exception("load failed")
-        result = module.load_documents(["bad.txt"])
-        assert result is False
+        # 模拟 registry.load 全部失败 → 返回空列表
+        mocks["registry"].load.return_value = []
+        ok, summary = module.load_documents(["bad.txt"])
+        assert ok is False
+        assert "失败" in summary or "无有效文档" in summary
 
     def test_load_documents_creates_retriever(self, rag):
         module, mocks = rag
@@ -178,25 +179,28 @@ class TestAddDocuments:
         module, mocks = rag
         # 没加载过 → 调用 load_documents
         result = module.add_documents(["new_doc.txt"])
-        # load_documents 返回 True
-        assert result is True
+        # load_documents 返回 (True, summary)
+        ok = result[0] if isinstance(result, tuple) else result
+        assert ok is True
 
     def test_add_documents_to_existing(self, rag):
         module, mocks = rag
         module.load_documents(["initial.txt"])
         # 现在 vectorstore 不为 None
         result = module.add_documents(["new.txt"])
-        assert result is True
+        ok = result[0] if isinstance(result, tuple) else result
+        assert ok is True
         # vectorstore.add_documents 被调用
         mocks["vectorstore"].add_documents.assert_called()
 
     def test_add_documents_empty(self, rag):
         module, mocks = rag
         module.load_documents(["initial.txt"])
-        # loader 抛错 → 空列表 → return False
-        mocks["loader"].return_value.load.side_effect = Exception("fail")
+        # registry.load 返回空 → add 返回 (False, ...)
+        mocks["registry"].load.return_value = []
         result = module.add_documents(["bad.txt"])
-        assert result is False
+        ok = result[0] if isinstance(result, tuple) else result
+        assert ok is False
 
 
 class TestClear:

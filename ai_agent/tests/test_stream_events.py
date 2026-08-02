@@ -29,10 +29,18 @@ class _FakeInvoker:
 
 
 def _make_agent(monkeypatch) -> AIAgent:
-    """构造一个不依赖真实 LLM 的 AIAgent。"""
+    """构造一个不依赖真实 LLM 的 AIAgent。
+
+    Day 6-7：显式把 ``_ensure_agent_ready`` 和 ``_check_safety`` stub 成"通过"，
+    这样 ``_prepare_turn`` 直接返回 turn（避开对真实 OPENAI key 的依赖）。
+    """
     # 跳过 init_checkpointer（避免 SQLite 副作用）
     monkeypatch.setattr(AIAgent, "_init_checkpointer", lambda self: None)
+    # 提前初始化前，也保证 agent 字段不为 None（否则 _prepare_turn 会触发 init_agent）
     agent = AIAgent()
+    agent.agent = SimpleNamespace(invoke=lambda *a, **k: None, stream=lambda *a, **k: iter([]))
+    monkeypatch.setattr(agent, "_ensure_agent_ready", lambda: None)
+    monkeypatch.setattr(agent, "_check_safety", lambda x: None)
     # 直接把 invoker 换成可控的 fake
     agent._fake_events: List[Tuple[str, object]] = []
     agent.invoker = SimpleNamespace(stream=lambda *a, **k: iter([]))
@@ -72,14 +80,15 @@ def test_stream_emits_chunk_event(monkeypatch):
 
 def test_stream_emits_safety_event_when_blocked(monkeypatch):
     agent = _make_agent(monkeypatch)
-    # 让 _check_safety 返回拦截
-    monkeypatch.setattr(agent, "_check_safety", lambda x: "❌ blocked")
+    # Day 6-7：让 _check_safety 返回与生产一致的拦截消息（包含"输入被阻止"）
+    # 这样 _prepare_turn 失败 → run_stream 分流为 safety 事件而非 error
+    monkeypatch.setattr(agent, "_check_safety", lambda x: "❌ 输入被阻止: 检测到危险指令")
     _patched_stream(agent, [])
     out = list(agent.run_stream("rm -rf /"))
     types = [e["type"] for e in out]
     assert "start" in types
     assert "safety" in types
-    # safety 事件应在前，stream 内容不应被发出
+    # safety 事件应在 stream 内容之前
 
 
 def test_stream_safety_for_output(monkeypatch):

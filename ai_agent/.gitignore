@@ -28,3 +28,8 @@ Thumbs.db
 
 # Charts (generated)
 chart_*.png
+
+# Archive 验收产物（Day 18 沉淀：让趋势跨次可追溯）
+# 但 acceptance/<ts>/summary.json 是核心历史，必须 commit
+tests-archive/acceptance/*/pytest.log
+tests-archive/acceptance/*/__pycache__/

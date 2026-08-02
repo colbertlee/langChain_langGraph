@@ -135,7 +135,18 @@ class TaskDelegate:
         """委托任务给多个 Agent"""
         results = {}
         tasks = []
-        
+
+        # plugin hook: pre_delegate（fire-and-forget）
+        try:
+            from plugin_manager import PluginHook, get_plugin_manager
+            import asyncio as _aio
+            _aio.ensure_future(get_plugin_manager().emit_hook(
+                PluginHook.PRE_DELEGATE,
+                task=task, target_agents=list(target_agents), timeout=timeout,
+            ))
+        except Exception:
+            pass
+
         for agent_id in target_agents:
             # 创建任务消息
             task_msg = create_task(
@@ -149,7 +160,7 @@ class TaskDelegate:
                 receiver_id=agent_id,
                 timeout=int(timeout)
             )
-            
+
             # 发送并等待响应
             bus = get_message_bus()
             response = await bus.request(
@@ -164,7 +175,18 @@ class TaskDelegate:
                 results[agent_id] = response.content
             else:
                 results[agent_id] = {"error": "Timeout or no response"}
-        
+
+        # plugin hook: post_delegate（fire-and-forget）
+        try:
+            from plugin_manager import PluginHook, get_plugin_manager
+            import asyncio as _aio
+            _aio.ensure_future(get_plugin_manager().emit_hook(
+                PluginHook.POST_DELEGATE,
+                task=task, results=results,
+            ))
+        except Exception:
+            pass
+
         return results
 
 

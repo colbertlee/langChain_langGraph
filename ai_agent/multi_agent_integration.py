@@ -30,6 +30,79 @@ from negotiation import (
 logger = logging.getLogger(__name__)
 
 
+def _builtin_manifests():
+    """惰性构造内置插件 manifest，避免强依赖触发 ImportError。"""
+    out = []
+    try:
+        from plugins.rag_backends.openai_embedding import builtin_manifest as _m
+        out.append(_m())
+    except Exception as e:
+        logger.warning("[plugin] rag_backends manifest unavailable: %s", e)
+    try:
+        from plugins.auth_backends.local import builtin_manifest as _m
+        out.append(_m())
+    except Exception as e:
+        logger.warning("[plugin] auth_backends manifest unavailable: %s", e)
+    return out
+
+
+def bootstrap_builtin_plugins(
+    config_path: Optional[str] = None,
+) -> Dict[str, Any]:
+    """进程启动时一次性 bootstrap 内置插件。
+
+    可独立于 AIAgentExtension 调用（app.py / main.py / 测试脚本均可）。
+
+    Args:
+        config_path: 可选 plugins.json 路径；存在则启用其中声明的额外插件。
+
+    Returns:
+        dict: {plugin_name: "enabled"|"error: ...", "stats": {...}}
+    """
+    from plugin_manager import get_plugin_manager
+    mgr = get_plugin_manager()
+
+    results: Dict[str, Any] = {}
+    for manifest in _builtin_manifests():
+        try:
+            mgr.install(manifest)
+            mgr.enable(manifest.name)
+            results[manifest.name] = "enabled"
+        except Exception as e:  # noqa: BLE001
+            results[manifest.name] = f"error: {e}"
+
+    # 加载外部 plugins.json（若存在）
+    if config_path and os.path.exists(config_path):
+        try:
+            n = mgr.load_state(config_path)
+            results[f"loaded_external_from_{config_path}"] = n
+        except Exception as e:  # noqa: BLE001
+            results[f"load_external_error"] = str(e)
+
+    # 触发 on_startup（fire-and-forget）
+    try:
+        import asyncio as _aio
+        from plugin_manager import PluginHook
+        try:
+            loop = _aio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(mgr.emit_hook(PluginHook.ON_STARTUP))
+            else:
+                loop.run_until_complete(mgr.emit_hook(PluginHook.ON_STARTUP))
+        except RuntimeError:
+            pass
+    except Exception:
+        pass
+
+    results["stats"] = mgr.stats()
+    logger.info("[plugin] bootstrap done: %s", results)
+    return results
+
+
+# 别名：instance / module 入口共用一份实现
+_bootstrap = bootstrap_builtin_plugins
+
+
 class AIAgentExtension:
     """
     AIAgent 多 Agent 功能扩展
@@ -1519,6 +1592,18 @@ class AIAgentExtension:
             return {"error": f"unknown hook: {hook}"}
         get_plugin_manager().register_hook(h, callback)
         return {"hook": hook, "registered": True}
+
+    # ==========================================
+    # Builtin plugin bootstrap (P3-17)
+    # ==========================================
+
+    def bootstrap_builtin_plugins(self, config_path: Optional[str] = None) -> Dict[str, Any]:
+        """安装并启用本仓库内置的两个插件（rag_backends / auth_backends）。
+
+        幂等：已 enabled 时跳过；manifest 缺包时打印 warning 后返回 stats。
+        复用模块级 `bootstrap_builtin_plugins()`，这里仅作为 instance 入口存在。
+        """
+        return _bootstrap(config_path=config_path)
 
     # ==========================================
     # Distributed Bus API (P3-18)

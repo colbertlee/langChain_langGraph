@@ -71,6 +71,7 @@ _DANGEROUS_CODE_PATTERNS: List[Tuple[str, str]] = [
     (r"\bos\.system\b|\bos\.popen\b", "os_call"),
     (r"\b__import__\b", "dunder_import"),
     (r"\beval\s*\(|\bexec\s*\(", "eval_exec"),
+    (r"\bopen\s*\(", "file_open"),
 ]
 
 
@@ -175,8 +176,10 @@ def validate_safe_path(file_path: str, operation: str = "read") -> Tuple[bool, s
             return False, f"不允许访问敏感位置: {frag}"
     # 4. 后缀白名单（粗筛）
     suffix = ""
-    if "." in parts[-1]:
-        suffix = "." + parts[-1].rsplit(".", 1)[-1].lower()
+    last = parts[-1]
+    # 仅在“文件名包含点且不是隐藏文件 / 当前目录”时才提取后缀
+    if "." in last and last not in (".", "..") and not last.startswith("."):
+        suffix = "." + last.rsplit(".", 1)[-1].lower()
     if suffix and suffix not in _ALLOWED_FILE_SUFFIXES:
         return False, f"不允许访问该类型文件: {suffix}"
     # 5. 删除操作额外检查：不能删根目录 + 必须有明确后缀
@@ -315,6 +318,8 @@ class SecurityModule:
             r'mysql://',
             r'sqlite://',
         ]
+        # 危险代码模式（输入过滤用）
+        self.dangerous_patterns: List[str] = [p for p, _ in _DANGEROUS_CODE_PATTERNS]
 
     def add_guardrail(self, name: str, func: Callable):
         self.guardrails.append({"name": name, "func": func})

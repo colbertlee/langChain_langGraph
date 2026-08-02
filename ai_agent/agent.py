@@ -16,6 +16,7 @@ AIAgent - 基于 LangChain 1.x + LangGraph 的多功能 AI Agent。
 
 import os
 import sqlite3
+from pathlib import Path
 import logging
 import time
 import uuid
@@ -324,8 +325,42 @@ class AIAgent:
 
             # LangChain 1.x: create_agent 直接接收 checkpointer / middleware，
             # 返回 CompiledStateGraph（不再需要 AgentExecutor 包装）
-            from agent_middleware import build_default_middleware
-            middleware = build_default_middleware()
+            from agent_middleware import (
+                build_default_middleware,
+                TokenUsageConfig,
+            )
+            # ── Token 用量：默认启用 dashboard（普罗米修斯 + 历史曲线 + 告警） ──
+            #   * Prometheus：暴露本地 9300/metrics（pull 模型）
+            #   * history_max=720：1 分钟桶，12 小时时间序列（前端折线图）
+            #   * alert_thresholds + cooldown + aggregation：原值默认保留
+            #   * Pushgateway 默认不开（运维/部署环境可运行时通过 UI 打开）
+            token_usage_config = TokenUsageConfig(
+                sinks=("state", "prometheus"),
+                prometheus_namespace="ai_agent",
+                # 12h × 60min = 720 桶
+                history_max=720,
+                history_bucket_seconds=60,
+                # 告警阈值：info / warn / critical（默认）
+                alert_thresholds=((0.5, "info"), (0.8, "warn"), (1.0, "critical")),
+                # 同 severity 抑制（默认；可通过 /api/token/budget 改）
+                alert_cooldown={"warn": 60.0, "critical": 300.0},
+                # 聚合窗口（30 秒）+ 抖动
+                alert_aggregation_window=30.0,
+                alert_aggregation_jitter=0.1,
+                # 持久化：跨重启不丢
+                budget_persist_path=str(
+                    Path(os.path.dirname(os.path.abspath(__file__)))
+                    / "logs"
+                    / "token_budget.json"
+                ),
+            )
+            middleware = build_default_middleware(token_usage_config=token_usage_config)
+            # 清空旧注册表（避免 set_model 反复 init_agent 累积陈旧实例）
+            try:
+                from agent_middleware import _TOKEN_USAGE_REGISTRY
+                _TOKEN_USAGE_REGISTRY.clear()
+            except Exception:  # noqa: BLE001
+                pass
             self.agent = create_agent(
                 model=self.model,
                 tools=self.tools,
@@ -859,6 +894,21 @@ class AIAgent:
 
     def _record_user_turn(self, user_input: str, intent: str, importance: int) -> None:
         """记录用户输入到结构化上下文与短期记忆。"""
+        # plugin hook: on_message（fire-and-forget；非关键路径）
+        try:
+            from plugin_manager import PluginHook, get_plugin_manager
+            import asyncio as _aio
+            _aio.ensure_future(get_plugin_manager().emit_hook(
+                PluginHook.ON_MESSAGE,
+                agent=self,
+                session_id=self.current_session_id,
+                user_input=user_input,
+                intent=intent,
+                importance=importance,
+            ))
+        except Exception:
+            pass
+
         try:
             self.context_manager.add_message(
                 session_id=self.current_session_id,

@@ -8,6 +8,25 @@
 [![Docker Image](https://ghcr.io/colbertlee/ai-agent-console/badge)](https://ghcr.io/colbertlee/ai-agent-console)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 
+## 📚 文档导航
+
+> 🎯 **一句话找文档**:
+> - "我第一次用" → [`USAGE.md`](USAGE.md)
+> - "我想升级版本" → [`UPGRADE.md`](UPGRADE.md)
+> - "我想看最新发布说明" → [`RELEASE_NOTES.md`](RELEASE_NOTES.md)
+
+| 文档 | 适合谁 | 阅读时长 | 难度 |
+|---|---|---|---|
+| 🆕 **[`USAGE.md`](USAGE.md)** | 最终用户 / 新手 | 25 分钟(速读 5 分钟) | ⭐ |
+| 🆕 **[`UPGRADE.md`](UPGRADE.md)** | 运维 / 老用户 | 15 分钟(速读 5 分钟) | ⭐⭐⭐ |
+| 🚀 **[`RELEASE_NOTES.md`](RELEASE_NOTES.md)** | 所有用户 | 8 分钟(速读 3 分钟) | ⭐⭐ |
+| 📖 **[`FEATURES_GUIDE.md`](FEATURES_GUIDE.md)** | 想深入了解功能 | 30 分钟 | ⭐⭐⭐ |
+| 🔧 **[`agent_middleware.md`](agent_middleware.md)** | 开发者 | 20 分钟 | ⭐⭐⭐⭐ |
+| 📝 **[`CHANGELOG.md`](CHANGELOG.md)** | 所有用户 | 按需查阅 | - |
+| 📋 **[`README.md`](README.md)** | 所有人 | 本文 | - |
+
+> 💡 **建议阅读顺序**:新用户 `USAGE.md → README → FEATURES_GUIDE → agent_middleware`;老用户 `RELEASE_NOTES → UPGRADE → CHANGELOG`。
+
 ## 目录
 
 - [项目简介](#项目简介)
@@ -596,6 +615,64 @@ prompt = manager.get_skill_prompt("deep_research", topic="人工智能发展趋�
 | `sqlite` | `@modelcontextprotocol/server-sqlite` |
 
 详见 [`mcp_tools.py`](mcp_tools.py) 与 [`mcp_config.json`](mcp_config.json)。
+
+### 自建 MCP Server（stdio 模式）
+
+项目内自带两个 Python stdio MCP server，位于 [`mcp_servers/`](mcp_servers/)：
+
+| Server | 作用 | 提供工具 |
+|---|---|---|
+| `demo_server` | 学习 / 测试 MCP 协议的最小示例 | `echo` / `reverse_text` / `sha256_hash` / `random_number` / `word_count` |
+| `agent_bridge_server` | 把 ai_agent 现有能力反向暴露给外部 MCP 客户端 | `list_capabilities` / `list_skills` / `run_etf_info` / `query_knowledge` |
+
+二者均已在 [`mcp_config.json`](mcp_config.json) 的 `external_servers` 中注册（`demo` 默认 enabled，`agent-bridge` 默认 disabled，需要时手动打开）。
+
+**手动启动（用于调试）**：
+
+```bash
+# 必须把仓库根目录加进 PYTHONPATH 才能 import ai_agent.* 包
+cd e:\langChain_langGraph
+python -m ai_agent.mcp_servers.demo_server
+python -m ai_agent.mcp_servers.agent_bridge_server
+```
+
+启动后 server 监听 stdin/stdout 上的 newline-delimited JSON-RPC，可用 [MCP Inspector](https://github.com/modelcontextprotocol/inspector) 或任意 MCP 客户端连接。
+
+**接入 Claude Desktop / Cursor**：
+
+在 `claude_desktop_config.json`（Windows：`%APPDATA%\Claude\claude_desktop_config.json`，macOS：`~/Library/Application Support/Claude/claude_desktop_config.json`）里加：
+
+```json
+{
+  "mcpServers": {
+    "ai-agent-demo": {
+      "command": "python",
+      "args": ["-m", "ai_agent.mcp_servers.demo_server"],
+      "cwd": "e:\\langChain_langGraph",
+      "env": {
+        "PYTHONPATH": "e:\\langChain_langGraph"
+      }
+    },
+    "ai-agent-bridge": {
+      "command": "python",
+      "args": ["-m", "ai_agent.mcp_servers.agent_bridge_server"],
+      "cwd": "e:\\langChain_langGraph",
+      "env": {
+        "PYTHONPATH": "e:\\langChain_langGraph"
+      }
+    }
+  }
+}
+```
+
+> ⚠️ `cwd` / `PYTHONPATH` 必须指向仓库根目录，否则 `ai_agent.mcp_servers.*` 找不到模块。
+
+**协议注意点**：
+
+- stdio 模式用 **newline-delimited JSON**（每条消息以 `\n` 结尾），**不是** LSP 风格的 `Content-Length:` 头。
+- `initialize` 之后必须立刻发 `notifications/initialized` 通知，否则 server 会拒收后续请求。
+
+详见 [`tests/test_demo_mcp_server.py`](tests/test_demo_mcp_server.py)（完整 stdio JSON-RPC 握手示例，可直接抄）。
 
 ### ETF 金融工具（tools.py）
 

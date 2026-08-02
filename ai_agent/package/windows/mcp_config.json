@@ -15,7 +15,7 @@
     "brave-search": {
       "name": "Brave Search MCP Server",
       "version": "latest",
-      "enabled": false,
+      "enabled": true,
       "description": "免费网络搜索 API"
     }
   },
@@ -36,14 +36,32 @@
       },
       "description": "GitHub API 集成"
     },
-    "filesystem": {
+    "demo": {
+      "enabled": true,
+      "command": "python",
+      "args": ["-m", "ai_agent.mcp_servers.demo_server"],
+      "env": {
+        "PYTHONPATH": "${PYTHONPATH}"
+      },
+      "description": "自建 MCP Demo Server（stdio）—— 示例工具集"
+    },
+    "agent-bridge": {
       "enabled": false,
+      "command": "python",
+      "args": ["-m", "ai_agent.mcp_servers.agent_bridge_server"],
+      "env": {
+        "PYTHONPATH": "${PYTHONPATH}"
+      },
+      "description": "自建 MCP Bridge Server（stdio）—— 暴露 ai_agent 现有能力给外部 MCP 客户端"
+    },
+    "filesystem": {
+      "enabled": true,
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-filesystem", "./"],
       "description": "本地文件系统访问"
     },
     "brave-search": {
-      "enabled": false,
+      "enabled": true,
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-brave-search"],
       "env": {
@@ -52,23 +70,45 @@
       "description": "Brave 搜索 API"
     },
     "slack": {
-      "enabled": false,
+      "enabled": true,
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-slack"],
       "env": {
-        "SLACK_BOT_TOKEN": "",
-        "SLACK_TEAM_ID": ""
+        "SLACK_BOT_TOKEN": "${SLACK_BOT_TOKEN}",
+        "SLACK_TEAM_ID": "${SLACK_TEAM_ID}"
       },
       "description": "Slack 消息集成"
     },
     "sqlite": {
-      "enabled": false,
+      "enabled": true,
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-sqlite"],
       "env": {
         "DATABASE_PATH": "./data.db"
       },
       "description": "SQLite 数据库访问"
+    },
+    "minimax": {
+      "enabled": false,
+      "command": "npx",
+      "args": ["-y", "minimax-mcp-js"],
+      "env": {
+        "MINIMAX_API_KEY": "${MINIMAX_API_KEY}",
+        "MINIMAX_MCP_BASE_PATH": "${MINIMAX_MCP_BASE_PATH}",
+        "MINIMAX_API_HOST": "${MINIMAX_API_HOST}",
+        "MINIMAX_API_RESOURCE_MODE": "${MINIMAX_API_RESOURCE_MODE}"
+      },
+      "description": "MiniMax 官方 MCP —— 语音合成 / 声音克隆 / 音乐生成 / 图像 / 视频生成",
+      "required_env": [
+        "MINIMAX_API_KEY",
+        "MINIMAX_MCP_BASE_PATH",
+        "MINIMAX_API_HOST"
+      ],
+      "env_defaults": {
+        "MINIMAX_API_HOST": "https://api.minimax.chat",
+        "MINIMAX_API_RESOURCE_MODE": "url"
+      },
+      "host_region_note": "国内 https://api.minimax.chat / 国际 https://api.minimaxi.chat(注意多一个 i),API Key 必须与 Host 同区域,否则会 invalid api key"
     }
   },
   "security": {

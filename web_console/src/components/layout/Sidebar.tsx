@@ -30,6 +30,8 @@ export function Sidebar() {
   const collapsed = useUIStore((s) => s.sidebarCollapsed);
   const toggle = useUIStore((s) => s.toggleSidebar);
   const online = useUIStore((s) => s.backendOnline);
+  const mcpRunningCount = useUIStore((s) => s.mcpRunningCount);
+  const mcpToolCount = useUIStore((s) => s.mcpToolCount);
 
   return (
     <aside
@@ -59,7 +61,21 @@ export function Sidebar() {
             className={({ isActive }) => cn('nav-item', isActive && 'active')}
           >
             <Icon className="w-[18px] h-[18px] shrink-0" strokeWidth={1.6} />
-            {!collapsed && <span className="truncate">{label}</span>}
+            {!collapsed && <span className="truncate flex-1">{label}</span>}
+            {to === '/tools' && mcpRunningCount > 0 && !collapsed && (
+              <span
+                className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-300 font-mono"
+                title={`${mcpRunningCount} 个 MCP server 运行中,共 ${mcpToolCount} 个工具`}
+              >
+                MCP · {mcpToolCount}
+              </span>
+            )}
+            {to === '/tools' && mcpRunningCount > 0 && collapsed && (
+              <span
+                className="absolute right-1 top-1 w-1.5 h-1.5 rounded-full bg-cyan-500 animate-pulse-soft"
+                title={`${mcpRunningCount} 个 MCP server 运行中`}
+              />
+            )}
           </NavLink>
         ))}
       </nav>

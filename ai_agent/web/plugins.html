@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>Plugins · AI Agent</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root { color-scheme: light dark; --bg:#0b1020; --card:#141a2e; --fg:#e6e8ee; --muted:#9aa3b2; --accent:#5b8def; --ok:#3ecf8e; --warn:#f7b955; --err:#ef5350; --line:#222a44;}
+  body { margin:0; font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; background:var(--bg); color:var(--fg); }
+  header { padding: 20px 24px; border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; }
+  header h1 { margin:0; font-size:18px; font-weight:600; }
+  main { padding: 24px; max-width: 1100px; margin:0 auto; }
+  .stats { display:flex; gap:12px; margin-bottom:18px; flex-wrap:wrap; }
+  .stat { background:var(--card); border:1px solid var(--line); padding:10px 14px; border-radius:8px; min-width:110px; }
+  .stat .v { font-size:20px; font-weight:700; }
+  .stat .k { font-size:12px; color:var(--muted); }
+  .toolbar { display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap; }
+  .btn { background:var(--accent); color:#fff; border:0; padding:6px 12px; border-radius:6px; cursor:pointer; font-size:13px; }
+  .btn.secondary { background:transparent; color:var(--fg); border:1px solid var(--line); }
+  .btn.danger { background:var(--err); }
+  .btn.warn { background:var(--warn); color:#222; }
+  .btn:disabled { opacity:.5; cursor:not-allowed; }
+  table { width:100%; border-collapse:collapse; background:var(--card); border-radius:8px; overflow:hidden; border:1px solid var(--line); }
+  th, td { text-align:left; padding:10px 12px; border-bottom:1px solid var(--line); font-size:13px; vertical-align: top; }
+  th { color:var(--muted); font-weight:600; background:#10162a; }
+  td .pill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px; background:#1d2540; color:var(--muted); margin-right:4px; }
+  .pill.ok { background:#163a2a; color:var(--ok); }
+  .pill.warn { background:#3a2f16; color:var(--warn); }
+  .pill.err { background:#3a1a1a; color:var(--err); }
+  .actions { display:flex; gap:6px; }
+  .err-msg { color:var(--err); font-size:12px; margin-top:4px; }
+  pre { background:#0a0f1d; padding:8px; border-radius:6px; font-size:12px; max-height:140px; overflow:auto; }
+  .meta { color:var(--muted); font-size:12px; }
+  .empty { padding:20px; text-align:center; color:var(--muted); }
+  dialog { background:var(--card); color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:18px; min-width:420px; }
+  dialog::backdrop { background:rgba(0,0,0,.4); }
+  dialog textarea { width:100%; min-height:220px; background:#0a0f1d; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:8px; font-family: ui-monospace, Menlo, monospace; font-size:12px; }
+  dialog label { display:block; font-size:12px; color:var(--muted); margin:8px 0 4px; }
+  dialog .row { display:flex; justify-content:flex-end; gap:8px; margin-top:12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🧩 Plugins</h1>
+  <div class="meta">/api/plugins · <a href="/" style="color:var(--accent); text-decoration:none;">back</a></div>
+</header>
+<main>
+  <div class="stats" id="stats"></div>
+  <div class="toolbar">
+    <button class="btn" onclick="openInstall()">+ Install</button>
+    <button class="btn secondary" onclick="reloadAll()">Reload</button>
+    <button class="btn secondary" onclick="saveAll()">Save → plugins.json</button>
+    <button class="btn secondary" onclick="loadAll()">Load ← plugins.json</button>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Version</th>
+        <th>Status</th>
+        <th>Capabilities</th>
+        <th>Entry Point</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+</main>
+
+<dialog id="dlg">
+  <h3 style="margin-top:0;">Install Plugin</h3>
+  <label>manifest (JSON)</label>
+  <textarea id="manifest" placeholder='{"name":"...", "entry_point":"...", "capabilities":[]}'></textarea>
+  <label>config (JSON, optional)</label>
+  <textarea id="config" style="min-height:80px;" placeholder='{}'></textarea>
+  <div class="row">
+    <button class="btn secondary" onclick="dlg.close()">Cancel</button>
+    <button class="btn" onclick="submitInstall()">Install</button>
+  </div>
+</dialog>
+
+<script>
+const dlg = document.getElementById('dlg');
+const manifestEl = document.getElementById('manifest');
+const configEl = document.getElementById('config');
+
+async function fetchJson(url, opts) {
+  const r = await fetch(url, opts);
+  if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+  return r.json();
+}
+
+function statusPill(s) {
+  const cls = s === 'enabled' ? 'ok' : (s === 'error' ? 'err' : 'warn');
+  return `<span class="pill ${cls}">${s}</span>`;
+}
+
+function render(plugins) {
+  document.getElementById('stats').innerHTML = `
+    <div class="stat"><div class="v" id="s_installed">0</div><div class="k">Installed</div></div>
+    <div class="stat"><div class="v" id="s_enabled">0</div><div class="k">Enabled</div></div>
+    <div class="stat"><div class="v" id="s_disabled">0</div><div class="k">Disabled</div></div>
+    <div class="stat"><div class="v" id="s_error">0</div><div class="k">Error</div></div>
+  `;
+  const body = document.getElementById('rows');
+  if (!plugins.length) {
+    body.innerHTML = `<tr><td colspan="6" class="empty">no plugins installed</td></tr>`;
+  } else {
+    body.innerHTML = plugins.map(p => {
+      const m = p.manifest || {};
+      const caps = (m.capabilities || []).map(c => `<span class="pill">${c}</span>`).join('');
+      const err = p.error ? `<div class="err-msg">${p.error}</div>` : '';
+      const actions = (p.status === 'enabled')
+        ? `<button class="btn warn" onclick="act('disable','${m.name}')">Disable</button>`
+        : `<button class="btn" onclick="act('enable','${m.name}')">Enable</button>`;
+      return `<tr>
+        <td><b>${m.name}</b><div class="meta">${m.description || ''}</div>${err}</td>
+        <td>${m.version || ''}</td>
+        <td>${statusPill(p.status)}</td>
+        <td>${caps}</td>
+        <td class="meta">${m.entry_point || ''}</td>
+        <td class="actions">
+          ${actions}
+          <button class="btn danger" onclick="act('uninstall','${m.name}')">Uninstall</button>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+  // stats
+  const enabled = plugins.filter(p => p.status === 'enabled').length;
+  const disabled = plugins.filter(p => p.status === 'disabled').length;
+  const error = plugins.filter(p => p.status === 'error').length;
+  document.getElementById('s_installed').textContent = plugins.length;
+  document.getElementById('s_enabled').textContent = enabled;
+  document.getElementById('s_disabled').textContent = disabled;
+  document.getElementById('s_error').textContent = error;
+}
+
+async function reloadAll() {
+  const r = await fetchJson('/api/plugins');
+  render(r.plugins || []);
+}
+
+async function act(op, name) {
+  const url = op === 'uninstall'
+    ? `/api/plugins/${name}`
+    : `/api/plugins/${name}/${op}`;
+  const method = op === 'uninstall' ? 'DELETE' : 'POST';
+  try {
+    await fetchJson(url, { method });
+    await reloadAll();
+  } catch (e) { alert(e.message); }
+}
+
+function openInstall() {
+  manifestEl.value = '';
+  configEl.value = '{}';
+  dlg.showModal();
+}
+
+async function submitInstall() {
+  let manifest, config = {};
+  try { manifest = JSON.parse(manifestEl.value || '{}'); }
+  catch (e) { alert('manifest JSON parse error: ' + e.message); return; }
+  try { config = JSON.parse(configEl.value || '{}'); }
+  catch (e) { alert('config JSON parse error: ' + e.message); return; }
+  try {
+    await fetchJson('/api/plugins/install', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ manifest, config }),
+    });
+    dlg.close();
+    await reloadAll();
+  } catch (e) { alert(e.message); }
+}
+
+async function saveAll() {
+  try { const r = await fetchJson('/api/plugins/save', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' }); alert('saved to ' + r.saved_to); }
+  catch (e) { alert(e.message); }
+}
+async function loadAll() {
+  try { const r = await fetchJson('/api/plugins/load', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' }); alert('loaded ' + r.loaded); await reloadAll(); }
+  catch (e) { alert(e.message); }
+}
+
+reloadAll();
+</script>
+</body>
+</html>

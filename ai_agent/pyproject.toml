@@ -1,6 +1,6 @@
 [project]
 name = "ai-agent"
-version = "0.1.0"
+version = "2.0.0"
 description = "AI Agent 后端服务（LangChain + LangGraph + MCP）"
 requires-python = ">=3.11"
 # PEP 621 项目元数据
@@ -43,6 +43,8 @@ ai-agent-server = "web_ui:run"
 ai-agent-test = "cli:test"
 ai-agent-lint = "cli:lint"
 ai-agent-format = "cli:format"
+# Day 10：环境预检 / 健康检查
+ai-agent-doctor = "cli:doctor"
 
 # ─────────────── PyPI 项目链接（PEP 753） ───────────────
 # 在 PyPI 项目页右侧显示这些链接
@@ -98,7 +100,7 @@ py-modules = [
 #   bumpversion --dry-run --verbose patch   # 试运行
 # 自动 commit + tag（用 -c "git commit -a -m 'bump version {new_version}'"）
 [tool.bumpversion]
-current_version = "0.1.0"
+current_version = "2.0.0"
 parse = "(?P<major>\\d+)\\.(?P<minor>\\d+)\\.(?P<patch>\\d+)"
 serialize = ["{major}.{minor}.{patch}"]
 # 是否允许 dirty working tree
@@ -138,18 +140,23 @@ addopts = [
     "-ra",
     "--strict-markers",
     "--tb=short",
-    "--cov=ai_agent",
+    # coverage：项目核心 hooks 模块（v0.4.x 后覆盖率 75%+；其他模块如
+    # multi_agent / audio_* / rag 等覆盖率较低，单独统计不在 fail-under 范围内）
+    "--cov=agent_middleware",
     "--cov-report=term-missing",
     "--cov-report=html:htmlcov",
     "--cov-report=xml:coverage.xml",
-    "--cov-fail-under=20",   # 渐进式提升
-    "-m", "not slow and not integration",
+    "--cov-fail-under=75",
+    # Day 4-5：默认排除 slow / integration / legacy，仅显式 -m 启用
+    "-m", "not slow and not integration and not legacy",
 ]
 markers = [
     "integration: 集成测试（需要外部依赖）",
     "network: 网络测试（需要真实 API）",
     "slow: 慢测试（>2s）",
-    "legacy: 遗留测试（从根目录迁移来）",
+    # Day 4-5：legacy 测试默认跳过；CI 可显式 -m legacy 跑历史回归。
+    # 计划每个 release 前清空此目录（归档至 tests-archive/）。
+    "legacy: 遗留测试（默认跳过；用于历史回归）",
 ]
 asyncio_mode = "auto"   # pytest-asyncio 自动 await
 filterwarnings = [

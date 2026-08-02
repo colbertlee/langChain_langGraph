@@ -1,4 +1,5 @@
 from agent import AIAgent
+import os
 import sys
 
 # Force UTF-8 output (Windows cmd defaults to GBK)
@@ -56,7 +57,20 @@ def main():
     print_banner()
     print("输入 'help' 查看帮助信息")
     print("=" * 60)
-    
+
+    # Plugin bootstrap
+    try:
+        from multi_agent_integration import bootstrap_builtin_plugins
+        plugins_cfg = os.environ.get("PLUGINS_CONFIG", "plugins.json")
+        if not os.path.isabs(plugins_cfg):
+            plugins_cfg = os.path.join(os.path.dirname(os.path.abspath(__file__)), plugins_cfg)
+        result = bootstrap_builtin_plugins(config_path=plugins_cfg)
+        stats = result.get("stats", {})
+        print(f"[plugin] bootstrap: enabled={stats.get('enabled', 0)} "
+              f"installed={stats.get('installed', 0)} errors={stats.get('error', 0)}")
+    except Exception as e:
+        print(f"[plugin] bootstrap skipped: {e}")
+
     agent = AIAgent()
     print(f"[OK] Agent initialized, tools: {len(agent.get_tools_list())}")
     

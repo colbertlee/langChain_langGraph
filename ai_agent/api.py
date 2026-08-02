@@ -1,14 +1,36 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from contextlib import asynccontextmanager
 from pydantic import BaseModel
 from typing import List, Optional
 import uuid
 import os
 
 from agent import AIAgent
+from mcp_external import external_mcp_manager
 
 app = FastAPI(title="AI Agent API", version="2.0.0")
+
+
+@asynccontextmanager
+async def _lifespan(app):
+    """FastAPI 启动/关闭钩子:启动时加载 enabled 的 external MCP,关闭时清理"""
+    try:
+        await external_mcp_manager.reload()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("mcp_external reload failed at startup: %s", e)
+    try:
+        yield
+    finally:
+        try:
+            await external_mcp_manager.shutdown()
+        except Exception:
+            pass
+
+
+app.router.lifespan_context = _lifespan
 
 agent = None
 
@@ -367,12 +389,103 @@ async def get_models():
         agent = get_agent()
         models = agent.get_available_models()
         status = agent.get_api_key_status()
-        
+
         return {
             "current_provider": status["provider"],
             "current_model": status["model"],
             "models": models
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =====================================================
+# 外部 MCP Servers 管理 API
+# =====================================================
+
+class MCPToggleRequest(BaseModel):
+    enabled: bool
+
+
+class MCPSetHostRequest(BaseModel):
+    host: str  # 例如 "https://api.minimax.chat" / "https://api.minimaxi.chat"
+
+
+@app.get("/api/mcp/servers")
+async def list_mcp_servers():
+    """列出所有 external MCP server + 运行时状态(env 字段不回 value)"""
+    try:
+        return {"servers": external_mcp_manager.list_servers()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/mcp/tools")
+async def list_mcp_tools():
+    """列出所有 running external MCP server 的 tools"""
+    try:
+        return {"tools": external_mcp_manager.list_tools()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/mcp/servers/{server_id}/toggle")
+async def toggle_mcp_server(server_id: str, request: MCPToggleRequest):
+    """切换 external MCP server 启用状态;enabled=true 时要求 required_env 齐全"""
+    try:
+        result = await external_mcp_manager.toggle(server_id, request.enabled)
+        if not result.get("ok"):
+            # 区分 missing_env(400)与其它错误(500)
+            if "missing_env" in result:
+                raise HTTPException(status_code=400, detail=result)
+            raise HTTPException(status_code=500, detail=result)
+        # 返回最新状态
+        return {
+            "ok": True,
+            "server_id": server_id,
+            "enabled": request.enabled,
+            "server": next(
+                (s for s in external_mcp_manager.list_servers() if s["id"] == server_id),
+                None,
+            ),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/mcp/servers/{server_id}/host")
+async def set_mcp_server_host(server_id: str, request: MCPSetHostRequest):
+    """仅供前端切换 minimax MCP 的 API_HOST(国内/国际);其它字段不通过此端点修改"""
+    try:
+        import json as _json
+        cfg_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "mcp_config.json"
+        )
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            cfg = _json.load(f)
+        servers = cfg.get("external_servers", {})
+        if server_id not in servers:
+            raise HTTPException(status_code=404, detail="unknown server_id")
+        env = servers[server_id].setdefault("env", {})
+        env["MINIMAX_API_HOST"] = request.host
+        cfg["external_servers"] = servers
+        # 用 manager 自带的原子写
+        external_mcp_manager._save_config(cfg)
+        return {"ok": True, "server_id": server_id, "host": request.host}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/mcp/reload")
+async def reload_mcp_servers():
+    """重读 mcp_config.json,按 enabled 启停全部 external server"""
+    try:
+        result = await external_mcp_manager.reload()
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

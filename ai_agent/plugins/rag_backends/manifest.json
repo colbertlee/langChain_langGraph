@@ -1,0 +1,15 @@
+{
+  "name": "rag_backends_builtin",
+  "version": "0.1.0",
+  "description": "Built-in RAG backends: OpenAI/Zhipu/Ollama embeddings + Chroma vector store",
+  "author": "ai-agent",
+  "license": "MIT",
+  "entry_point": "plugins.rag_backends.openai_embedding",
+  "dependencies": [],
+  "python_requires": ">=3.9",
+  "capabilities": ["embedding", "vector_store"],
+  "hooks": [],
+  "config_schema": {},
+  "homepage": "",
+  "tags": ["rag", "builtin"]
+}

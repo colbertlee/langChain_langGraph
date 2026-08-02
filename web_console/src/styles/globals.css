@@ -193,7 +193,7 @@
     color: var(--fg-0);
   }
   .nav-item {
-    @apply flex items-center gap-3 px-3 py-2 rounded-[10px] text-sm font-medium text-fg1 transition-colors;
+    @apply relative flex items-center gap-3 px-3 py-2 rounded-[10px] text-sm font-medium text-fg1 transition-colors;
   }
   .nav-item:hover {
     background: rgba(255, 255, 255, 0.04);

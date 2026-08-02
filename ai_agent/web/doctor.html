@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Agent · Doctor 健康检查</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%A9%BE%3C/text%3E%3C/svg%3E">
+  <style>
+    :root {
+      --bg-app: #1c1c1e;
+      --bg-card: rgba(58, 58, 60, 0.5);
+      --fg-primary: #f5f5f7;
+      --fg-secondary: rgba(235, 235, 245, 0.6);
+      --fg-accent: #0a84ff;
+      --fg-success: #30d158;
+      --fg-warning: #ff9f0a;
+      --fg-danger: #ff453a;
+      --border: rgba(84, 84, 88, 0.45);
+      --radius-md: 12px;
+      --radius-lg: 16px;
+      --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.35);
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg-app: #f5f5f7;
+        --bg-card: rgba(255, 255, 255, 0.7);
+        --fg-primary: #1c1c1e;
+        --fg-secondary: rgba(60, 60, 67, 0.6);
+        --border: rgba(60, 60, 67, 0.18);
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", Arial, sans-serif;
+      background: var(--bg-app);
+      color: var(--fg-primary);
+      min-height: 100vh;
+    }
+    header {
+      padding: 24px 32px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 22px;
+      font-weight: 600;
+    }
+    header .home {
+      color: var(--fg-accent);
+      text-decoration: none;
+      font-size: 14px;
+      padding: 6px 12px;
+      border-radius: 8px;
+      background: rgba(10, 132, 255, 0.12);
+    }
+    main {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+    .actions {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+    button {
+      padding: 10px 18px;
+      background: var(--fg-accent);
+      color: white;
+      border: none;
+      border-radius: var(--radius-md);
+      font-size: 14px;
+      cursor: pointer;
+      transition: transform 0.1s;
+    }
+    button:hover { transform: translateY(-1px); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    button.secondary { background: rgba(94, 92, 230, 0.3); }
+    button.danger { background: var(--fg-danger); }
+
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .stat {
+      background: var(--bg-card);
+      border-radius: var(--radius-lg);
+      padding: 18px 20px;
+      text-align: center;
+      box-shadow: var(--shadow-md);
+    }
+    .stat .n {
+      font-size: 36px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    .stat.ok .n { color: var(--fg-success); }
+    .stat.warn .n { color: var(--fg-warning); }
+    .stat.fail .n { color: var(--fg-danger); }
+    .stat .label {
+      font-size: 13px;
+      color: var(--fg-secondary);
+    }
+
+    .check-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .check {
+      background: var(--bg-card);
+      border-radius: var(--radius-md);
+      padding: 14px 18px;
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      box-shadow: var(--shadow-md);
+    }
+    .check .badge {
+      flex-shrink: 0;
+      width: 64px;
+      text-align: center;
+      font-weight: 600;
+      padding: 4px 0;
+      border-radius: 6px;
+      font-size: 12px;
+    }
+    .check .badge.ok { background: rgba(48, 209, 88, 0.18); color: var(--fg-success); }
+    .check .badge.warn { background: rgba(255, 159, 10, 0.18); color: var(--fg-warning); }
+    .check .badge.fail { background: rgba(255, 69, 58, 0.18); color: var(--fg-danger); }
+    .check .body { flex: 1; min-width: 0; }
+    .check .body .name {
+      font-weight: 600;
+      font-size: 15px;
+      margin-bottom: 4px;
+    }
+    .check .body .msg {
+      font-size: 13px;
+      color: var(--fg-secondary);
+    }
+    .check .body .fix {
+      margin-top: 6px;
+      font-size: 12.5px;
+      color: var(--fg-accent);
+      font-family: ui-monospace, "Cascadia Code", Menlo, monospace;
+    }
+    .check .body .details {
+      margin-top: 6px;
+      font-size: 11.5px;
+      color: var(--fg-secondary);
+      font-family: ui-monospace, monospace;
+      white-space: pre-wrap;
+      background: rgba(0,0,0,0.18);
+      padding: 6px 10px;
+      border-radius: 6px;
+      max-height: 140px;
+      overflow: auto;
+    }
+
+    h2 {
+      font-size: 16px;
+      font-weight: 600;
+      margin: 28px 0 12px;
+      color: var(--fg-secondary);
+    }
+    .history {
+      background: var(--bg-card);
+      border-radius: var(--radius-lg);
+      padding: 12px 18px;
+      max-height: 320px;
+      overflow: auto;
+      box-shadow: var(--shadow-md);
+    }
+    .history-row {
+      display: grid;
+      grid-template-columns: 200px 1fr 1fr 100px;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+    }
+    .history-row:last-child { border-bottom: none; }
+    .history-row .ts { color: var(--fg-secondary); font-family: monospace; }
+    .history-row .num { font-weight: 600; }
+    .history-row .num .green { color: var(--fg-success); }
+    .history-row .num .red { color: var(--fg-danger); }
+
+    .empty {
+      text-align: center;
+      padding: 24px;
+      color: var(--fg-secondary);
+    }
+    footer {
+      max-width: 980px;
+      margin: 40px auto 0;
+      padding: 20px 32px;
+      border-top: 1px solid var(--border);
+      font-size: 12px;
+      color: var(--fg-secondary);
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <a href="/web/index.html" class="home">← 返回主界面</a>
+    <h1>🌐 AI Agent Doctor — 环境与系统健康</h1>
+  </header>
+  <main>
+    <div class="actions">
+      <button id="btn-doctor">🔍 跑 Doctor</button>
+      <button id="btn-evals" class="secondary">🧪 跑全部 Evals</button>
+      <button id="btn-history" class="secondary">📜 刷新历史</button>
+    </div>
+
+    <div id="summary" class="summary" style="display: none;">
+      <div class="stat ok"><div class="n" id="n-ok">0</div><div class="label">OK</div></div>
+      <div class="stat warn"><div class="n" id="n-warn">0</div><div class="label">WARN</div></div>
+      <div class="stat fail"><div class="n" id="n-fail">0</div><div class="label">FAIL</div></div>
+    </div>
+
+    <div id="checks" class="check-list"></div>
+
+    <h2>最近的 Evals 回归历史</h2>
+    <div id="history" class="history"><div class="empty">暂无历史</div></div>
+  </main>
+  <footer>
+    Doctor 端点 <code>/api/doctor</code> · Evals 端点 <code>POST /api/evals/run</code> · 历史 <code>GET /api/evals/history</code>
+  </footer>
+
+  <script>
+    const $ = id => document.getElementById(id);
+
+    async function loadDoctor() {
+      const checksEl = $("checks");
+      checksEl.innerHTML = '<div class="empty">正在检测…</div>';
+      try {
+        const r = await fetch("/api/doctor");
+        if (!r.ok) throw new Error("doctor HTTP " + r.status);
+        const data = await r.json();
+        renderDoctor(data);
+      } catch (e) {
+        checksEl.innerHTML = `<div class="empty">⚠️ 加载失败：${e.message}</div>`;
+      }
+    }
+
+    function renderDoctor(data) {
+      const checks = data.checks || [];
+      const summary = data.summary || { ok: 0, warn: 0, fail: 0 };
+      $("summary").style.display = "grid";
+      $("n-ok").textContent = summary.ok;
+      $("n-warn").textContent = summary.warn;
+      $("n-fail").textContent = summary.fail;
+
+      const list = $("checks");
+      if (!checks.length) {
+        list.innerHTML = '<div class="empty">无检查项</div>';
+        return;
+      }
+      list.innerHTML = checks.map(c => {
+        const badgeCls = c.status === "ok" ? "ok" : c.status === "warn" ? "warn" : "fail";
+        const badgeTxt = c.status.toUpperCase();
+        const fix = c.fix ? `<div class="fix">→ 修：${escapeHtml(c.fix)}</div>` : "";
+        const details = c.details && Object.keys(c.details).length
+          ? `<div class="details">${escapeHtml(JSON.stringify(c.details, null, 2))}</div>`
+          : "";
+        return `
+          <div class="check">
+            <div class="badge ${badgeCls}">${badgeTxt}</div>
+            <div class="body">
+              <div class="name">${escapeHtml(c.name)}</div>
+              <div class="msg">${escapeHtml(c.message)}</div>
+              ${fix}${details}
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    async function runEvals() {
+      const btn = $("btn-evals");
+      btn.disabled = true;
+      btn.textContent = "🧪 跑回归中…";
+      try {
+        const r = await fetch("/api/evals/run", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ all: true }),
+        });
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        const data = await r.json();
+        const s = data.summary || {};
+        alert(
+          (data.exit_code === 0 ? "✅ " : "❌ ") +
+          `${s.cases_passed || 0}/${s.cases_total || 0} 通过\n` +
+          `Run: ${data.latest_run || "(none)"}`
+        );
+      } catch (e) {
+        alert("跑回归失败：\n" + e.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "🧪 跑全部 Evals";
+        loadHistory();
+      }
+    }
+
+    async function loadHistory() {
+      const el = $("history");
+      el.innerHTML = '<div class="empty">加载中…</div>';
+      try {
+        const r = await fetch("/api/evals/history?limit=20");
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        const data = await r.json();
+        const runs = data.runs || [];
+        if (!runs.length) {
+          el.innerHTML = '<div class="empty">暂无历史（点击右上"🧪 跑全部 Evals"试试）</div>';
+          return;
+        }
+        el.innerHTML = `
+          <div class="history-row" style="font-weight:600;color:var(--fg-secondary)">
+            <div>Run ID</div>
+            <div>时间</div>
+            <div>状态</div>
+            <div>结果</div>
+          </div>
+          ${runs.map(r => `
+            <div class="history-row">
+              <div class="ts">${escapeHtml(r.id || "")}</div>
+              <div class="ts">${escapeHtml(r.started_at || "")}</div>
+              <div>${escapeHtml(r.finished_at || "")}</div>
+              <div class="num">
+                <span class="green">${r.passed}</span> /
+                <span class="red">${r.failed}</span> / ${r.total}
+              </div>
+            </div>
+          `).join("")}
+        `;
+      } catch (e) {
+        el.innerHTML = `<div class="empty">⚠️ ${e.message}</div>`;
+      }
+    }
+
+    function escapeHtml(s) {
+      const div = document.createElement("div");
+      div.textContent = String(s == null ? "" : s);
+      return div.innerHTML;
+    }
+
+    $("btn-doctor").addEventListener("click", loadDoctor);
+    $("btn-evals").addEventListener("click", runEvals);
+    $("btn-history").addEventListener("click", loadHistory);
+
+    // 首次加载
+    loadDoctor();
+    loadHistory();
+  </script>
+</body>
+</html>

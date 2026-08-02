@@ -2,6 +2,8 @@
 
 > 一站式多功能 AI Agent 平台：后端 LangChain 1.x + LangGraph + MCP，前端 React/Vite 控制台，可分发 Windows / Linux / macOS 桌面二进制，可经 PyPI / Docker GHCR / Scoop / Homebrew 多渠道分发。
 
+> 📚 **找不到合适的文档?** 看 [**`DOCS_INDEX.md`**](DOCS_INDEX.md) — 47 个文档的一站式导航,3 秒找到任何问题的答案。
+
 [![Backend CI](https://img.shields.io/github/actions/workflow/status/colbertlee/langChain_langGraph/backend-ci.yml?branch=main&label=backend%20ci)](https://github.com/colbertlee/langChain_langGraph/actions/workflows/backend-ci.yml)
 [![Frontend CI](https://img.shields.io/github/actions/workflow/status/colbertlee/langChain_langGraph/ci.yml?branch=main&label=frontend%20ci)](https://github.com/colbertlee/langChain_langGraph/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/actions/workflow/status/colbertlee/langChain_langGraph/release.yml?branch=main&label=release)](https://github.com/colbertlee/langChain_langGraph/actions/workflows/release.yml)

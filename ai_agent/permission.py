@@ -127,6 +127,42 @@ class PermissionGuard:
         # 回调：denied 时调用
         self.on_denied: Optional[Callable[[str, str, Any], None]] = None
 
+        # 外部 AuthProvider（plugin 注入，可选；不强制使用）
+        #   - 缓存：(credentials_hash) -> AuthPrincipal
+        #   - 缓存命中后仍走本地 policy 做 send/capability 检查
+        self._auth_provider = None
+        self._auth_principal_cache: Dict[str, Any] = {}
+
+    # ----------------- Auth Provider (plugin) -----------------
+
+    def set_auth_provider(self, provider) -> None:
+        """注入外部 AuthProvider（来自 plugin）。"""
+        self._auth_provider = provider
+        self._auth_principal_cache.clear()
+
+    def authenticate(self, credentials) -> Any:
+        """把外部凭证解析为 AuthPrincipal；无 provider / 失败返回 None。"""
+        if self._auth_provider is None:
+            return None
+        try:
+            key = repr(credentials)
+        except Exception:
+            key = id(credentials)
+        if key in self._auth_principal_cache:
+            return self._auth_principal_cache[key]
+        principal = self._auth_provider.resolve(credentials)
+        if principal is not None:
+            self._auth_principal_cache[key] = principal
+            # 同步给本地 policy（覆盖默认空 policy）
+            self._policies.setdefault(
+                principal.agent_id,
+                Policy(agent_id=principal.agent_id, roles=[
+                    # string -> Role 兼容；plugin 给出字符串时仅做"原样保留"
+                    r for r in principal.roles if hasattr(Role, "_value_") or True
+                ]),
+            )
+        return principal
+
     # ----------------- 策略管理 -----------------
 
     def add_policy(self, policy: Policy) -> None:
@@ -352,6 +388,22 @@ class PermissionGuard:
 
 _permission_guard: Optional[PermissionGuard] = None
 
+# 需要 HITL 审批的工具集合(跨 agent 全局生效)。
+# dispatcher(如 minimax MCP)在调用前自查,若在集合中则先返回"已入队审批"占位,
+# 让上层走 human_in_loop 流程。
+_REQUIRE_APPROVAL_TOOLS: Set[str] = set()
+
+# 默认需要审批的 minimax MCP 工具:会产生外部副作用或付费
+DEFAULT_REQUIRE_APPROVAL_TOOLS: Set[str] = {
+    "minimax_voice_clone",
+    "minimax_voice_design",
+    "minimax_play_audio",
+    "minimax_music_generation",
+    "minimax_generate_video",
+    "minimax_image_to_video",
+    "minimax_text_to_image",
+}
+
 
 def get_permission_guard() -> PermissionGuard:
     """获取全局 PermissionGuard 单例"""
@@ -363,15 +415,38 @@ def get_permission_guard() -> PermissionGuard:
 
 
 def reset_permission_guard() -> None:
-    """重置（测试用）"""
+    """重置(测试用)"""
     global _permission_guard
     _permission_guard = None
+    global _REQUIRE_APPROVAL_TOOLS
+    _REQUIRE_APPROVAL_TOOLS = set()
+
+
+def require_approval_tools() -> Set[str]:
+    """获取当前所有需要 HITL 审批的工具名"""
+    return set(_REQUIRE_APPROVAL_TOOLS)
+
+
+def add_require_approval_tool(tool_name: str) -> None:
+    """把工具加入审批清单"""
+    _REQUIRE_APPROVAL_TOOLS.add(tool_name)
+
+
+def remove_require_approval_tool(tool_name: str) -> None:
+    """从审批清单移除"""
+    _REQUIRE_APPROVAL_TOOLS.discard(tool_name)
+
+
+def is_require_approval(tool_name: str) -> bool:
+    """工具是否需要审批"""
+    return tool_name in _REQUIRE_APPROVAL_TOOLS
 
 
 def _apply_default_policies(guard: PermissionGuard) -> None:
-    """应用默认策略（开发环境常用）"""
-    # 默认情况下：
-    # - main agent 有 supervisor 角色（任意 capability）
-    # - workers 是 worker 角色（受组约束）
-    # 默认不强制，注册 policy 时启用
-    pass
+    """应用默认策略(开发环境常用)"""
+    # 默认情况下:
+    # - main agent 有 supervisor 角色(任意 capability)
+    # - workers 是 worker 角色(受组约束)
+    # 默认不强制,注册 policy 时启用
+    # 同时把 minimax 高危工具加入审批集合
+    _REQUIRE_APPROVAL_TOOLS.update(DEFAULT_REQUIRE_APPROVAL_TOOLS)

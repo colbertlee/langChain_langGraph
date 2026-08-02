@@ -458,6 +458,92 @@
         .icon-btn:hover { background: var(--bg-hover); }
         .icon-btn.active { background: var(--bg-active); color: var(--fg-accent); }
 
+        /* Token usage badge (topbar) */
+        .token-badge {
+            display: inline-flex; align-items: center; gap: 6px;
+            height: 30px; padding: 0 10px 0 8px;
+            border-radius: var(--radius-full);
+            background: var(--bg-card);
+            border: 0.5px solid var(--border);
+            color: var(--fg-primary);
+            font: 500 12px/1 -apple-system, "SF Pro Text", "Segoe UI", sans-serif;
+            cursor: pointer;
+            transition: background 0.15s, transform 0.1s;
+        }
+        .token-badge:hover { background: var(--bg-hover); }
+        .token-badge:active { transform: scale(0.97); }
+        .token-badge .token-icon { font-size: 13px; color: var(--fg-accent); }
+        .token-badge .token-text { display: inline-flex; gap: 2px; }
+        .token-badge .token-sep { color: var(--fg-tertiary); margin: 0 1px; }
+        .token-badge .token-bar {
+            width: 36px; height: 4px; border-radius: 2px;
+            background: var(--bg-input); overflow: hidden;
+            display: inline-block;
+        }
+        .token-badge .token-bar-fill {
+            display: block; height: 100%; width: 0%;
+            background: var(--accent-grad);
+            transition: width 0.4s var(--ease), background 0.3s;
+        }
+        .token-badge.level-warn   .token-bar-fill { background: var(--warm-grad); }
+        .token-badge.level-crit   .token-bar-fill { background: var(--fg-danger); }
+        .token-badge.level-crit   { box-shadow: 0 0 0 1px var(--fg-danger); }
+        .token-badge.level-over   { animation: token-pulse 1.4s infinite; }
+        @keyframes token-pulse {
+            0%, 100% { box-shadow: 0 0 0 1px var(--fg-danger); }
+            50%      { box-shadow: 0 0 0 3px rgba(255, 69, 58, 0.35); }
+        }
+        /* Token dashboard 面板 */
+        .token-totals {
+            display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
+            margin: 6px 0 10px;
+        }
+        .token-stat {
+            background: var(--bg-card); border: 0.5px solid var(--border);
+            border-radius: var(--radius-sm); padding: 8px 10px;
+        }
+        .token-stat-label { font-size: 10px; color: var(--fg-secondary); text-transform: uppercase; letter-spacing: 0.4px; }
+        .token-stat-val { font-size: 15px; font-weight: 600; color: var(--fg-primary); margin-top: 2px; word-break: break-all; }
+
+        .token-scope-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 4px 0 10px; }
+        .token-scope { background: var(--bg-card); border: 0.5px solid var(--border); border-radius: var(--radius-sm); padding: 8px 10px; }
+        .token-scope-label { font-size: 11px; color: var(--fg-secondary); margin-bottom: 4px; }
+        .token-scope-bar { height: 6px; background: var(--bg-input); border-radius: 3px; overflow: hidden; }
+        .token-scope-fill { display: block; height: 100%; width: 0%; background: var(--accent-grad); transition: width 0.4s var(--ease), background 0.3s; }
+        .token-scope-meta { font-size: 11px; color: var(--fg-secondary); margin-top: 4px; }
+        .token-scope.warn .token-scope-fill { background: var(--warm-grad); }
+        .token-scope.crit .token-scope-fill { background: var(--fg-danger); }
+
+        .token-alert {
+            background: rgba(255, 159, 10, 0.12); border: 0.5px solid var(--fg-warning);
+            border-radius: var(--radius-sm); padding: 8px 10px; margin: 6px 0 10px;
+        }
+        .token-alert.crit { background: rgba(255, 69, 58, 0.14); border-color: var(--fg-danger); }
+        .token-alert-head { display: flex; justify-content: space-between; align-items: center; font-weight: 600; font-size: 12px; }
+        .token-alert-head button { font-size: 11px; padding: 2px 8px; background: transparent; border: 0.5px solid var(--border); border-radius: 4px; color: var(--fg-primary); cursor: pointer; }
+        .token-alert-body { font-size: 11px; color: var(--fg-secondary); margin-top: 4px; }
+
+        .token-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; }
+        .token-thresholds { display: flex; flex-direction: column; gap: 4px; }
+        .token-th { display: flex; align-items: center; gap: 4px; font-size: 11px; }
+        .token-th input { width: 60px; }
+        .token-th select { font-size: 11px; }
+        .token-th button { width: 22px; height: 22px; font-size: 11px; }
+        .token-cooldown { display: flex; flex-direction: column; gap: 3px; }
+        .token-cd-row { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+        .token-cd-row input { width: 70px; }
+        .sev { font-size: 10px; padding: 1px 6px; border-radius: 3px; text-transform: uppercase; }
+        .sev-info { background: rgba(10, 132, 255, 0.16); color: var(--fg-accent); }
+        .sev-warn { background: rgba(255, 159, 10, 0.18); color: var(--fg-warning); }
+        .sev-crit { background: rgba(255, 69, 58, 0.18); color: var(--fg-danger); }
+
+        .token-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+        .token-table th, .token-table td { padding: 5px 6px; text-align: left; border-bottom: 0.5px solid var(--border); }
+        .token-table th { font-weight: 600; color: var(--fg-secondary); text-transform: uppercase; font-size: 10px; letter-spacing: 0.4px; }
+        .token-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+        .token-table tr:last-child td { border-bottom: none; }
+
+
         .topbar-right {
             display: flex;
             align-items: center;
@@ -1553,6 +1639,7 @@
                 <div class="user-name">Agent User</div>
                 <div class="user-meta" id="userMeta">未连接</div>
             </div>
+            <button class="icon-btn" onclick="openDoctor()" title="健康检查" aria-label="Doctor">🌐</button>
             <button class="icon-btn" onclick="toggleSettingsPanel()" title="设置">⚙</button>
         </div>
     </aside>
@@ -1573,7 +1660,16 @@
             </div>
 
             <div class="topbar-right">
-                <button class="icon-btn" onclick="toggleTheme()" title="切换主题" id="themeBtn">🌙</button>
+                <button class="token-badge" id="tokenBadge" onclick="openTokenDashboard()" title="Token 用量与预算">
+                    <span class="token-icon">⚡</span>
+                    <span class="token-text">
+                        <span id="tokenUsed">$0.00</span>
+                        <span class="token-sep">/</span>
+                        <span id="tokenBudget">∞</span>
+                    </span>
+                    <span class="token-bar"><span class="token-bar-fill" id="tokenBarFill"></span></span>
+                </button>
+                <button class="icon-btn" onclick="toggleTheme()" title="切换主题" id="themeBtn">��</button>
                 <button class="icon-btn" onclick="exportChat()" title="导出对话">⬇</button>
                 <button class="icon-btn" onclick="toggleRightbar()" title="侧边面板" id="panelBtn">▥</button>
             </div>
@@ -1726,6 +1822,178 @@
                 <div class="hint" style="margin-bottom:6px;">当前激活版本会在下次会话生效；可一键回滚到历史稳定版。</div>
                 <div id="promptsList"><div class="empty-state">点击刷新加载</div></div>
             </div>
+
+            
+                <!-- Token 用量与预算（v0.5 新增） -->
+                <div class="section-title" style="padding:14px 0 8px; border-top:0.5px solid var(--border); margin-top:14px;">
+                    <span>Token 用量 &amp; 预算</span><button onclick="loadTokenDashboard()">刷新</button>
+                </div>
+                <div class="hint" style="margin-bottom:6px;">
+                    实时统计本进程 token 用量与 USD 成本。预算 / 告警可运行时修改，立刻生效。
+                </div>
+
+                <!-- 顶部累计 + 进度 -->
+                <div class="token-totals" id="tokenTotals">
+                    <div class="token-stat"><div class="token-stat-label">累计输入</div><div class="token-stat-val" id="ttIn">0</div></div>
+                    <div class="token-stat"><div class="token-stat-label">累计输出</div><div class="token-stat-val" id="ttOut">0</div></div>
+                    <div class="token-stat"><div class="token-stat-label">总 Token</div><div class="token-stat-val" id="ttTotal">0</div></div>
+                    <div class="token-stat"><div class="token-stat-label">总成本</div><div class="token-stat-val" id="ttCost">$0.00</div></div>
+                </div>
+
+                <!-- 预算进度 -->
+                <div class="token-scope-grid" id="tokenScopeGrid">
+                    <div class="token-scope" data-scope="daily">
+                        <div class="token-scope-label">每日预算</div>
+                        <div class="token-scope-bar"><span class="token-scope-fill" id="scDaily"></span></div>
+                        <div class="token-scope-meta" id="smDaily">—</div>
+                    </div>
+                    <div class="token-scope" data-scope="weekly">
+                        <div class="token-scope-label">每周预算</div>
+                        <div class="token-scope-bar"><span class="token-scope-fill" id="scWeekly"></span></div>
+                        <div class="token-scope-meta" id="smWeekly">—</div>
+                    </div>
+                    <div class="token-scope" data-scope="monthly">
+                        <div class="token-scope-label">每月预算</div>
+                        <div class="token-scope-bar"><span class="token-scope-fill" id="scMonthly"></span></div>
+                        <div class="token-scope-meta" id="smMonthly">—</div>
+                    </div>
+                    <div class="token-scope" data-scope="per_call">
+                        <div class="token-scope-label">每次调用上限</div>
+                        <div class="token-scope-bar"><span class="token-scope-fill" id="scPerCall"></span></div>
+                        <div class="token-scope-meta" id="smPerCall">—</div>
+                    </div>
+                </div>
+
+                <!-- 最近告警 -->
+                <div id="tokenAlertBox" class="token-alert hidden">
+                    <div class="token-alert-head">
+                        <span id="tokenAlertTitle">上次告警</span>
+                        <button onclick="ackTokenAlert()">✓ 确认</button>
+                    </div>
+                    <div class="token-alert-body" id="tokenAlertBody"></div>
+                </div>
+
+                <!-- 预算设置 -->
+                <div class="section-title" style="padding:14px 0 8px; border-top:0.5px solid var(--border); margin-top:14px;">
+                    <span>预算阈值 (USD)</span>
+                </div>
+                <div class="token-grid-2">
+                    <div class="field"><label>单次调用上限</label><input type="number" id="cfgPerCall" step="0.001" min="0" placeholder="不限"></div>
+                    <div class="field"><label>累计上限</label><input type="number" id="cfgCumulative" step="0.01" min="0" placeholder="不限"></div>
+                    <div class="field"><label>每日 (Daily)</label><input type="number" id="cfgDaily" step="0.01" min="0" placeholder="不限"></div>
+                    <div class="field"><label>每周 (Weekly)</label><input type="number" id="cfgWeekly" step="0.01" min="0" placeholder="不限"></div>
+                    <div class="field"><label>每月 (Monthly)</label><input type="number" id="cfgMonthly" step="0.01" min="0" placeholder="不限"></div>
+                    <div class="field">
+                        <label>告警阈值 (ratio × severity)</label>
+                        <div class="token-thresholds" id="cfgThresholds">
+                            <span class="token-th"><input type="number" step="0.05" min="0" max="2" value="0.5"> ×
+                                <select><option>info</option><option>warn</option><option>critical</option></select>
+                                <button class="icon-btn" onclick="removeThreshold(this)">×</button>
+                            </span>
+                            <span class="token-th"><input type="number" step="0.05" min="0" max="2" value="0.8"> ×
+                                <select><option>info</option><option selected>warn</option><option>critical</option></select>
+                                <button class="icon-btn" onclick="removeThreshold(this)">×</button>
+                            </span>
+                            <span class="token-th"><input type="number" step="0.05" min="0" max="2" value="1.0"> ×
+                                <select><option>info</option><option>warn</option><option selected>critical</option></select>
+                                <button class="icon-btn" onclick="removeThreshold(this)">×</button>
+                            </span>
+                            <button class="btn btn-secondary" onclick="addThreshold()">＋ 加一行</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 告警去重 / 聚合 -->
+                <div class="section-title" style="padding:14px 0 8px; border-top:0.5px solid var(--border); margin-top:14px;">
+                    <span>告警去重 / 聚合 / 冷却</span>
+                </div>
+                <div class="token-grid-2">
+                    <div class="field">
+                        <label>Cooldown (秒，severity → 秒)</label>
+                        <div class="token-cooldown" id="cfgCooldown">
+                            <span class="token-cd-row"><span class="sev sev-info">info</span><input type="number" step="1" min="0" data-cd="info" placeholder="0"></span>
+                            <span class="token-cd-row"><span class="sev sev-warn">warn</span><input type="number" step="1" min="0" data-cd="warn" placeholder="60"></span>
+                            <span class="token-cd-row"><span class="sev sev-crit">critical</span><input type="number" step="1" min="0" data-cd="critical" placeholder="300"></span>
+                        </div>
+                        <div class="hint">同 severity 在 N 秒内不重复触发。空 / 0 = 禁用。</div>
+                    </div>
+                    <div class="field">
+                        <label>聚合窗口 (秒)</label>
+                        <input type="number" id="cfgAggWindow" step="1" min="0" placeholder="0 = 禁用">
+                        <label style="margin-top:6px;">聚合抖动 ( [negative, positive] )</label>
+                        <div style="display:flex; gap:4px;">
+                            <input type="number" id="cfgAggJitterNeg" step="0.01" min="0" placeholder="0.1">
+                            <input type="number" id="cfgAggJitterPos" step="0.01" min="0" placeholder="0.1">
+                        </div>
+                        <div class="hint">N 秒内多次触发合并为一条告警。0 = 禁用。</div>
+                    </div>
+                </div>
+
+                <!-- Prometheus 配置 -->
+                <div class="section-title" style="padding:14px 0 8px; border-top:0.5px solid var(--border); margin-top:14px;">
+                    <span>Prometheus &amp; Pushgateway</span>
+                </div>
+                <div class="token-grid-2">
+                    <div class="field">
+                        <label>Pushgateway URL</label>
+                        <input type="text" id="cfgPGUrl" placeholder="http://pushgateway:9091">
+                        <div class="hint">留空 = 关闭 Pushgateway 模式（仅本地 9300/metrics pull）。</div>
+                    </div>
+                    <div class="field">
+                        <label>Job 名</label>
+                        <input type="text" id="cfgPGJob" placeholder="agent_ai_agent">
+                    </div>
+                    <div class="field">
+                        <label>每 N 次调用 push 一次</label>
+                        <input type="number" id="cfgPGEvery" min="1" value="50">
+                    </div>
+                    <div class="field">
+                        <label>Grouping Key (k=v, k=v)</label>
+                        <input type="text" id="cfgPGGrouping" placeholder="env=prod, team=ai">
+                    </div>
+                </div>
+                <div style="display:flex; gap:6px; margin-top:6px;">
+                    <button class="btn btn-primary" onclick="saveTokenBudget()">保存预算 / 告警</button>
+                    <button class="btn btn-secondary" onclick="saveTokenPrometheus()">保存 Prometheus</button>
+                    <button class="btn btn-secondary" onclick="pushTokenPrometheusNow()">立即 Push 一次</button>
+                </div>
+
+                <!-- 历史曲线 -->
+                <div class="section-title" style="padding:14px 0 8px; border-top:0.5px solid var(--border); margin-top:14px;">
+                    <span>历史曲线</span>
+                    <div style="display:flex; gap:4px; margin-left:auto;">
+                        <select id="histRange" onchange="loadTokenHistory()">
+                            <option value="1h">1 小时</option>
+                            <option value="6h">6 小时</option>
+                            <option value="24h" selected>24 小时</option>
+                            <option value="7d">7 天</option>
+                            <option value="all">全部</option>
+                        </select>
+                        <select id="histBucket" onchange="loadTokenHistory()">
+                            <option value="auto">自动桶</option>
+                            <option value="60">1 分钟</option>
+                            <option value="300">5 分钟</option>
+                            <option value="3600">1 小时</option>
+                        </select>
+                    </div>
+                </div>
+                <div style="display:flex; gap:6px; margin-bottom:6px; flex-wrap:wrap;">
+                    <label class="hint"><input type="checkbox" id="histShowCost" checked onchange="drawTokenChart()"> 成本</label>
+                    <label class="hint"><input type="checkbox" id="histShowIn" onchange="drawTokenChart()"> 输入 token</label>
+                    <label class="hint"><input type="checkbox" id="histShowOut" onchange="drawTokenChart()"> 输出 token</label>
+                </div>
+                <canvas id="tokenChart" width="640" height="180" style="width:100%; height:180px; background:var(--bg-card); border-radius:8px;"></canvas>
+
+                <!-- 按模型拆分 -->
+                <div class="section-title" style="padding:14px 0 8px; border-top:0.5px solid var(--border); margin-top:14px;">
+                    <span>按模型拆分</span>
+                </div>
+                <table class="token-table" id="tokenByModel">
+                    <thead><tr>
+                        <th>模型</th><th>调用次数</th><th>输入</th><th>输出</th><th>总</th><th>成本</th>
+                    </tr></thead>
+                    <tbody></tbody>
+                </table>
 
             <!-- Tools tab -->
             <div class="tab-panel hidden" data-panel="tools">
@@ -3207,6 +3475,406 @@ function runCmd(i) {
 /* ============================================================
    Misc actions (export, attach, voice)
    ============================================================ */
+async function openTokenDashboard() {
+    if (!state.rightOpen) toggleRightbar();
+    openTab('settings');
+    await loadTokenDashboard();
+    document.querySelector('[data-panel=settings]')?.scrollTo({ top: 99999, behavior: 'smooth' });
+}
+
+async function loadTokenDashboard() {
+    try {
+        const r = await fetch('/api/token/usage');
+        const d = await r.json();
+        renderTokenDashboard(d);
+        await loadTokenHistory();
+    } catch (e) {
+        console.error('loadTokenDashboard', e);
+    }
+}
+
+function renderTokenDashboard(d) {
+    if (!d || d.ok === false) {
+        document.getElementById('tokenUsed').textContent = '—';
+        document.getElementById('tokenBudget').textContent = '—';
+        return;
+    }
+    // 顶部小徽章
+    const scope = d.scope || {};
+    const daily = scope.daily || {};
+    const ratio = daily.ratio || 0;
+    document.getElementById('tokenUsed').textContent = '$' + (daily.used ?? 0).toFixed(3);
+    document.getElementById('tokenBudget').textContent = daily.budget ? '$' + daily.budget.toFixed(2) : '∞';
+    const bar = document.getElementById('tokenBarFill');
+    bar.style.width = Math.min(ratio * 100, 100) + '%';
+    const badge = document.getElementById('tokenBadge');
+    badge.classList.remove('level-warn', 'level-crit', 'level-over');
+    if (ratio >= 1.0) badge.classList.add('level-crit', 'level-over');
+    else if (ratio >= 0.8) badge.classList.add('level-warn');
+
+    // 顶部累计
+    const t = d.totals || {};
+    document.getElementById('ttIn').textContent = (t.input || 0).toLocaleString();
+    document.getElementById('ttOut').textContent = (t.output || 0).toLocaleString();
+    document.getElementById('ttTotal').textContent = (t.total || 0).toLocaleString();
+    document.getElementById('ttCost').textContent = '$' + (t.cost_usd || 0).toFixed(4);
+
+    // 各项预算进度
+    const colorFor = (r) => r >= 1 ? 'crit' : (r >= 0.8 ? 'warn' : '');
+    const fillScope = (key, sc) => {
+        const el = document.getElementById('sc' + key);
+        const meta = document.getElementById('sm' + key);
+        if (!el || !meta) return;
+        const r = sc.ratio || 0;
+        el.style.width = Math.min(r * 100, 100) + '%';
+        const parent = el.parentElement.parentElement;
+        parent.classList.remove('warn', 'crit');
+        if (r >= 1) parent.classList.add('crit');
+        else if (r >= 0.8) parent.classList.add('warn');
+        meta.textContent = sc.budget == null
+            ? `已用 $${(sc.used || 0).toFixed(4)}（不限）`
+            : `已用 $${(sc.used || 0).toFixed(4)} / $${(+sc.budget).toFixed(2)}（${(r * 100).toFixed(1)}%）`;
+    };
+    fillScope('Daily', scope.daily || {});
+    fillScope('Weekly', scope.weekly || {});
+    fillScope('Monthly', scope.monthly || {});
+    fillScope('PerCall', scope.per_call || {});
+
+    // 最近告警
+    const alertBox = document.getElementById('tokenAlertBox');
+    const last = d.last_alert;
+    if (last) {
+        alertBox.classList.remove('hidden');
+        alertBox.classList.toggle('crit', last.severity === 'critical');
+        const ago = Math.max(0, Math.floor((Date.now() / 1000) - (last.at || 0)));
+        const agoText = ago < 60 ? `${ago}s 前` : (ago < 3600 ? `${Math.floor(ago / 60)}m 前` : `${Math.floor(ago / 3600)}h 前`);
+        document.getElementById('tokenAlertTitle').textContent = `⚠ ${last.scope} · ${last.severity}（${agoText}）`;
+        document.getElementById('tokenAlertBody').textContent =
+            `已用 $${(+last.current_usd).toFixed(4)} / 预算 $${(+last.budget_usd).toFixed(2)}（${((last.ratio || 0) * 100).toFixed(1)}%）` +
+            (last.model_name ? ` · 模型 ${last.model_name}` : '') +
+            (last.aggregation_count > 1 ? ` · 聚合 ${last.aggregation_count} 次` : '');
+    } else {
+        alertBox.classList.add('hidden');
+    }
+
+    // 预算表单（仅在打开时填，避免每次刷新覆盖用户输入）
+    const cfg = d.config || {};
+    setNumIfEmpty('cfgPerCall', cfg.budget_persist_path == null ? '' : cfg.budget_persist_path); // keep
+    document.getElementById('cfgPerCall').placeholder = '不限';
+    document.getElementById('cfgDaily').placeholder = '不限';
+    document.getElementById('cfgWeekly').placeholder = '不限';
+    document.getElementById('cfgMonthly').placeholder = '不限';
+    document.getElementById('cfgCumulative').placeholder = '不限';
+    setNumIfEmpty('cfgDaily', scope.daily && scope.daily.budget);
+    setNumIfEmpty('cfgWeekly', scope.weekly && scope.weekly.budget);
+    setNumIfEmpty('cfgMonthly', scope.monthly && scope.monthly.budget);
+    setNumIfEmpty('cfgCumulative', scope.cumulative && scope.cumulative.budget);
+    setNumIfEmpty('cfgPerCall', scope.per_call && scope.per_call.budget);
+
+    // 告警阈值
+    const ths = (cfg.alert_thresholds || []).map(x => Array.isArray(x) ? x : [x[0], x[1]]);
+    if (ths.length) {
+        const box = document.getElementById('cfgThresholds');
+        // 仅当现有行数对不上才重建
+        const existing = box.querySelectorAll('.token-th').length;
+        if (existing !== ths.length) {
+            box.querySelectorAll('.token-th').forEach(n => n.remove());
+            ths.forEach(([r, s]) => addThreshold(r, s));
+        }
+    }
+    // cooldown
+    const cd = cfg.alert_cooldown || {};
+    document.querySelectorAll('#cfgCooldown input[data-cd]').forEach(inp => {
+        if (inp.value === '' && cd[inp.dataset.cd] != null) inp.value = cd[inp.dataset.cd];
+    });
+    // aggregation
+    setNumIfEmpty('cfgAggWindow', cfg.alert_aggregation_window);
+    {
+        const j = cfg.alert_aggregation_jitter;
+        if (Array.isArray(j) && j.length === 2) {
+            setNumIfEmpty('cfgAggJitterNeg', j[0]);
+            setNumIfEmpty('cfgAggJitterPos', j[1]);
+        } else if (typeof j === 'number') {
+            setNumIfEmpty('cfgAggJitterNeg', j);
+            setNumIfEmpty('cfgAggJitterPos', j);
+        }
+    }
+
+    // prometheus
+    const prom = d.prometheus || {};
+    setTextIfEmpty('cfgPGUrl', prom.pushgateway_url || '');
+    setTextIfEmpty('cfgPGJob', prom.pushgateway_job || '');
+    setNumIfEmpty('cfgPGEvery', prom.push_to_gateway_every_n || 50);
+    setTextIfEmpty('cfgPGGrouping', Object.entries(prom.grouping_key || {}).map(([k, v]) => `${k}=${v}`).join(', '));
+
+    // by_model 表格
+    const tbody = document.querySelector('#tokenByModel tbody');
+    if (tbody) {
+        const rows = d.by_model || [];
+        if (!rows.length) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--fg-tertiary); padding:14px;">暂无数据</td></tr>';
+        } else {
+            tbody.innerHTML = rows.map(r => `
+                <tr>
+                    <td>${escapeHtml(r.model)}</td>
+                    <td class="num">${r.calls}</td>
+                    <td class="num">${(r.input || 0).toLocaleString()}</td>
+                    <td class="num">${(r.output || 0).toLocaleString()}</td>
+                    <td class="num">${(r.total || 0).toLocaleString()}</td>
+                    <td class="num">$${(+r.cost_usd).toFixed(4)}</td>
+                </tr>
+            `).join('');
+        }
+    }
+}
+
+function setNumIfEmpty(id, v) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (el.value === '' && v !== null && v !== undefined && v !== '') el.value = v;
+}
+function setTextIfEmpty(id, v) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (el.value === '' && v !== null && v !== undefined) el.value = v;
+}
+function escapeHtml(s) {
+    return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function addThreshold(r, s) {
+    const box = document.getElementById('cfgThresholds');
+    const sp = document.createElement('span');
+    sp.className = 'token-th';
+    sp.innerHTML = `<input type="number" step="0.05" min="0" max="2" value="${r ?? 0.5}"> ×
+        <select><option>info</option><option>warn</option><option>critical</option></select>
+        <button class="icon-btn" onclick="removeThreshold(this)">×</button>`;
+    if (s) sp.querySelector('select').value = s;
+    // 插入到 "+ 加一行" 按钮之前
+    const addBtn = box.querySelector('button.btn');
+    box.insertBefore(sp, addBtn);
+}
+function removeThreshold(btn) {
+    const sp = btn.closest('.token-th');
+    if (sp) sp.remove();
+}
+
+function collectThresholds() {
+    const rows = document.querySelectorAll('#cfgThresholds .token-th');
+    const out = [];
+    rows.forEach(r => {
+        const ratio = parseFloat(r.querySelector('input').value);
+        const sev = r.querySelector('select').value;
+        if (!isNaN(ratio)) out.push([ratio, sev]);
+    });
+    return out;
+}
+
+function collectCooldown() {
+    const out = {};
+    document.querySelectorAll('#cfgCooldown input[data-cd]').forEach(inp => {
+        const v = inp.value.trim();
+        if (v !== '') out[inp.dataset.cd] = parseFloat(v);
+    });
+    return out;
+}
+
+async function saveTokenBudget() {
+    const payload = {
+        per_call_budget_usd: parseNumOrNull('cfgPerCall'),
+        cumulative_budget_usd: parseNumOrNull('cfgCumulative'),
+        daily_budget_usd: parseNumOrNull('cfgDaily'),
+        weekly_budget_usd: parseNumOrNull('cfgWeekly'),
+        monthly_budget_usd: parseNumOrNull('cfgMonthly'),
+        alert_thresholds: collectThresholds(),
+        alert_cooldown: collectCooldown(),
+        alert_aggregation_window: parseNumOrNull('cfgAggWindow'),
+    };
+    const neg = parseFloat(document.getElementById('cfgAggJitterNeg').value);
+    const pos = parseFloat(document.getElementById('cfgAggJitterPos').value);
+    if (!isNaN(neg) || !isNaN(pos)) {
+        payload.alert_aggregation_jitter = [isNaN(neg) ? 0 : neg, isNaN(pos) ? 0 : pos];
+    }
+    try {
+        const r = await fetch('/api/token/budget', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload),
+        });
+        const d = await r.json();
+        if (d.ok) toast('✓ 预算 / 告警已保存');
+        else toast('✗ 保存失败: ' + (d.detail || '未知错误'));
+        await loadTokenDashboard();
+    } catch (e) {
+        toast('✗ 失败: ' + e.message);
+    }
+}
+
+async function saveTokenPrometheus() {
+    const gk = {};
+    const raw = (document.getElementById('cfgPGGrouping').value || '').trim();
+    if (raw) {
+        raw.split(/[, ]+/).forEach(pair => {
+            const [k, ...rest] = pair.split('=');
+            if (k && rest.length) gk[k.trim()] = rest.join('=').trim();
+        });
+    }
+    const payload = {
+        pushgateway_url: document.getElementById('cfgPGUrl').value || null,
+        pushgateway_job: document.getElementById('cfgPGJob').value || null,
+        push_to_gateway_every_n: parseInt(document.getElementById('cfgPGEvery').value, 10) || 50,
+        grouping_key: gk,
+    };
+    try {
+        const r = await fetch('/api/token/prometheus', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload),
+        });
+        const d = await r.json();
+        if (d.ok) toast('✓ Prometheus 配置已保存');
+        else toast('✗ 保存失败: ' + (d.detail || '未知错误'));
+        await loadTokenDashboard();
+    } catch (e) {
+        toast('✗ 失败: ' + e.message);
+    }
+}
+
+async function pushTokenPrometheusNow() {
+    try {
+        const r = await fetch('/api/token/prometheus/push', { method: 'POST' });
+        const d = await r.json();
+        if (d.ok && d.pushed > 0) toast(`✓ Push 成功（${d.pushed} 个 sink）`);
+        else if (d.ok && d.pushed === 0) toast('⚠ 未启用 Pushgateway');
+        else toast('✗ 失败: ' + (d.errors || []).join('; ') || '未知');
+    } catch (e) {
+        toast('✗ 失败: ' + e.message);
+    }
+}
+
+async function ackTokenAlert() {
+    try {
+        await fetch('/api/token/alert/ack', { method: 'POST' });
+        document.getElementById('tokenAlertBox').classList.add('hidden');
+        toast('✓ 已确认');
+    } catch (e) {
+        toast('✗ 失败: ' + e.message);
+    }
+}
+
+function parseNumOrNull(id) {
+    const v = document.getElementById(id).value.trim();
+    if (v === '') return null;
+    const n = parseFloat(v);
+    return isNaN(n) ? null : n;
+}
+
+let _tokenHistory = [];
+
+async function loadTokenHistory() {
+    const range = document.getElementById('histRange').value;
+    const bucket = document.getElementById('histBucket').value;
+    try {
+        const r = await fetch(`/api/token/usage/history?range=${encodeURIComponent(range)}&bucket=${encodeURIComponent(bucket)}`);
+        const d = await r.json();
+        _tokenHistory = d.history || [];
+        drawTokenChart();
+    } catch (e) {
+        console.error('loadTokenHistory', e);
+    }
+}
+
+function drawTokenChart() {
+    const canvas = document.getElementById('tokenChart');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    // 自适应宽度
+    const w = canvas.clientWidth || 640;
+    const h = 180;
+    canvas.width = w * window.devicePixelRatio;
+    canvas.height = h * window.devicePixelRatio;
+    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+    ctx.clearRect(0, 0, w, h);
+    const pad = { l: 38, r: 8, t: 10, b: 18 };
+    const innerW = w - pad.l - pad.r;
+    const innerH = h - pad.t - pad.b;
+    // 背景
+    ctx.fillStyle = 'rgba(255,255,255,0)';
+    ctx.fillRect(pad.l, pad.t, innerW, innerH);
+    if (!_tokenHistory.length) {
+        ctx.fillStyle = 'rgba(235,235,245,0.4)';
+        ctx.font = '12px -apple-system';
+        ctx.fillText('暂无历史（等待 model call）', pad.l + 10, h / 2);
+        return;
+    }
+    const showCost = document.getElementById('histShowCost').checked;
+    const showIn = document.getElementById('histShowIn').checked;
+    const showOut = document.getElementById('histShowOut').checked;
+    const series = [];
+    if (showCost) series.push({ k: 'cost', v: 'cost_usd', color: '#0a84ff', maxOverride: null });
+    if (showIn)   series.push({ k: 'in',    v: 'input',     color: '#5e5ce6', maxOverride: null });
+    if (showOut)  series.push({ k: 'out',   v: 'output',    color: '#bf5af2', maxOverride: null });
+    if (!series.length) return;
+    // X 轴
+    const t0 = _tokenHistory[0].bucket_ts;
+    const t1 = _tokenHistory[_tokenHistory.length - 1].bucket_ts;
+    const xMin = t0, xMax = Math.max(t1, t0 + 1);
+    // 每条 series 找 max
+    series.forEach(s => {
+        const mx = Math.max(0.0001, ..._tokenHistory.map(h => +(h[s.v] || 0)));
+        s.max = mx;
+    });
+    // 网格
+    ctx.strokeStyle = 'rgba(84,84,88,0.18)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 4; i++) {
+        const y = pad.t + (innerH * i) / 4;
+        ctx.beginPath();
+        ctx.moveTo(pad.l, y);
+        ctx.lineTo(w - pad.r, y);
+        ctx.stroke();
+    }
+    // 折线
+    series.forEach(s => {
+        ctx.strokeStyle = s.color;
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        _tokenHistory.forEach((h, i) => {
+            const x = pad.l + ((h.bucket_ts - xMin) / (xMax - xMin)) * innerW;
+            const v = +(h[s.v] || 0);
+            const y = pad.t + innerH - (v / s.max) * innerH;
+            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+    });
+    // X 轴标签
+    ctx.fillStyle = 'rgba(235,235,245,0.55)';
+    ctx.font = '10px -apple-system';
+    const fmt = (ts) => {
+        const d = new Date(ts * 1000);
+        return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    };
+    ctx.fillText(fmt(t0), pad.l, h - 4);
+    const tEnd = fmt(t1);
+    ctx.fillText(tEnd, w - pad.r - 26, h - 4);
+    // Y 轴最大
+    const costMax = series.find(s => s.k === 'cost')?.max || 0;
+    ctx.fillText(showCost ? '$' + costMax.toFixed(4) : '', 4, pad.t + 6);
+    // 图例
+    let lx = pad.l + 4;
+    series.forEach(s => {
+        ctx.fillStyle = s.color;
+        ctx.fillRect(lx, 4, 8, 3);
+        ctx.fillStyle = 'rgba(235,235,245,0.7)';
+        ctx.fillText(s.k, lx + 12, 9);
+        lx += 50;
+    });
+}
+
+// 启动时延迟拉一次（dashboard 没初始化可能 500，1s 后再试）
+setTimeout(() => { loadTokenDashboard(); }, 1200);
+setInterval(() => { loadTokenDashboard(); }, 8000);
+
 function exportChat() {
     if (state.messages.length === 0) { toast('暂无对话可导出'); return; }
     const md = state.messages.map(m => {
@@ -3243,6 +3911,16 @@ function toggleVoice() {
 function toggleSettingsPanel() {
     if (!state.rightOpen) toggleRightbar();
     openTab('settings');
+}
+
+// Day 15：跳转 Doctor 健康检查页（独立页面，含 Evals 触发）
+function openDoctor() {
+    try {
+        window.open('/web/doctor', '_blank', 'noopener,noreferrer');
+    } catch (e) {
+        // fallback
+        window.location.href = '/web/doctor';
+    }
 }
 
 /* ============================================================

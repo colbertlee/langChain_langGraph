@@ -14,6 +14,7 @@ import { useUIStore } from '@/stores/uiStore';
 
 export default function App() {
   const setBackendOnline = useUIStore((s) => s.setBackendOnline);
+  const setMcpSummary = useUIStore((s) => s.setMcpSummary);
 
   useEffect(() => {
     let cancelled = false;
@@ -32,6 +33,28 @@ export default function App() {
       window.clearInterval(t);
     };
   }, [setBackendOnline]);
+
+  // 周期刷新 MCP 摘要,给 Sidebar 角标用
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const r = await api.mcpServers();
+        const tools = await api.mcpTools().catch(() => ({ tools: [] }));
+        if (cancelled) return;
+        const running = (r.servers || []).filter((s) => s.running).length;
+        setMcpSummary(running, (tools.tools || []).length);
+      } catch {
+        // 后端未启 / 接口未就绪时静默忽略
+      }
+    };
+    refresh();
+    const t = window.setInterval(refresh, 15000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(t);
+    };
+  }, [setMcpSummary]);
 
   return (
     <AppShell>

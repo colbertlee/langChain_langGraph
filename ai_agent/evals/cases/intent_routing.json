@@ -1,0 +1,50 @@
+[
+  {
+    "name": "intent_greet_zh",
+    "category": "intent_routing",
+    "input": "你好",
+    "expected_intent": "greeting"
+  },
+  {
+    "name": "intent_query_zh",
+    "category": "intent_routing",
+    "input": "查一下今天上海的天气",
+    "expected_intent": "query"
+  },
+  {
+    "name": "intent_calc_zh",
+    "category": "intent_routing",
+    "input": "帮我算一下 1+2",
+    "expected_intent": "calculate"
+  },
+  {
+    "name": "intent_analysis_zh",
+    "category": "intent_routing",
+    "input": "分析一下最近走势",
+    "expected_intent": "analysis"
+  },
+  {
+    "name": "intent_command_zh",
+    "category": "intent_routing",
+    "input": "执行 shell 命令",
+    "expected_intent": "command"
+  },
+  {
+    "name": "intent_query_en",
+    "category": "intent_routing",
+    "input": "what is the weather today",
+    "expected_intent": "query"
+  },
+  {
+    "name": "intent_compare_en",
+    "category": "intent_routing",
+    "input": "compare AAPL and MSFT",
+    "expected_intent": "compare"
+  },
+  {
+    "name": "intent_general_fallback",
+    "category": "intent_routing",
+    "input": "???",
+    "expected_intent": "general"
+  }
+]

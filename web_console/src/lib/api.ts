@@ -108,6 +108,31 @@ export const api = {
     json<{ total: number; by_type?: Record<string, number> }>(
       '/memory/stats',
     ),
+
+  // ----- External MCP Servers -----
+  mcpServers: () => json<{ servers: MCPServerInfo[] }>('/mcp/servers'),
+  mcpTools: () => json<{ tools: MCPToolInfo[] }>('/mcp/tools'),
+  mcpToggle: (id: string, enabled: boolean) =>
+    json<{
+      ok: boolean;
+      server_id?: string;
+      enabled?: boolean;
+      server?: MCPServerInfo;
+      error?: string;
+      missing_env?: string[];
+    }>(`/mcp/servers/${id}/toggle`, {
+      method: 'POST',
+      body: JSON.stringify({ enabled }),
+    }),
+  mcpSetHost: (id: string, host: string) =>
+    json<{ ok: boolean; server_id: string; host: string }>(
+      `/mcp/servers/${id}/host`,
+      { method: 'POST', body: JSON.stringify({ host }) },
+    ),
+  mcpReload: () =>
+    json<{ ok: boolean; results?: Record<string, string> }>('/mcp/reload', {
+      method: 'POST',
+    }),
 };
 
 // ----- Prompt 相关类型 -----
@@ -148,6 +173,36 @@ export interface MemoryItem {
   session_id?: string;
   created_at?: number;
   tags?: string[];
+}
+
+// ----- MCP Servers 类型 -----
+export interface MCPEnvKey {
+  name: string;
+  configured: boolean;
+  required: boolean;
+}
+
+export interface MCPServerInfo {
+  id: string;
+  name: string;
+  description: string;
+  command: string;
+  args: string[];
+  enabled: boolean;
+  running: boolean;
+  tools_count: number;
+  env_keys: MCPEnvKey[];
+  env_defaults?: Record<string, string>;
+  host_region_note?: string;
+  pid?: number | null;
+  last_error?: string | null;
+}
+
+export interface MCPToolInfo {
+  server_id: string;
+  name: string;
+  description: string;
+  inputSchema?: Record<string, unknown>;
 }
 
 export interface SecurityRewritePolicy {

@@ -1,0 +1,15 @@
+{
+  "name": "auth_backends_builtin",
+  "version": "0.1.0",
+  "description": "Built-in auth/HITL backends: static AuthProvider + log HITLNotifier",
+  "author": "ai-agent",
+  "license": "MIT",
+  "entry_point": "plugins.auth_backends.local",
+  "dependencies": [],
+  "python_requires": ">=3.9",
+  "capabilities": ["auth", "hitl_notify"],
+  "hooks": [],
+  "config_schema": {},
+  "homepage": "",
+  "tags": ["auth", "hitl", "builtin"]
+}

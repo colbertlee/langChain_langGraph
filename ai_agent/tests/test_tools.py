@@ -124,16 +124,18 @@ class TestBasics:
 
 class TestFileTools:
 
-    def test_read_file_success(self, tmp_path):
+    def test_read_file_success(self, tmp_path, monkeypatch):
         from tools import read_file
+        monkeypatch.chdir(tmp_path)
         f = tmp_path / "x.txt"
         f.write_text("hello", encoding="utf-8")
-        result = _invoke_langchain_tool(read_file, str(f))
+        result = _invoke_langchain_tool(read_file, "x.txt")
         assert result == "hello"
 
-    def test_read_file_not_found(self, tmp_path):
+    def test_read_file_not_found(self, tmp_path, monkeypatch):
         from tools import read_file
-        result = _invoke_langchain_tool(read_file, str(tmp_path / "nope.txt"))
+        monkeypatch.chdir(tmp_path)
+        result = _invoke_langchain_tool(read_file, "nope.txt")
         assert "不存在" in result or "Error" in result or "❌" in result
 
     def test_read_file_path_traversal_denied(self):
@@ -146,36 +148,38 @@ class TestFileTools:
         result = _invoke_langchain_tool(read_file, "/etc/passwd")
         assert "不允许" in result or "❌" in result
 
-    def test_write_file_success(self, tmp_path):
+    def test_write_file_success(self, tmp_path, monkeypatch):
         from tools import write_file
-        f = tmp_path / "out.txt"
-        result = _invoke_langchain_tool(write_file, str(f), "content")
+        monkeypatch.chdir(tmp_path)
+        result = _invoke_langchain_tool(write_file, "out.txt", "content")
         assert "成功" in result or "✅" in result or "写入" in result
-        assert f.read_text(encoding="utf-8") == "content"
+        assert (tmp_path / "out.txt").read_text(encoding="utf-8") == "content"
 
-    def test_write_file_append(self, tmp_path):
+    def test_write_file_append(self, tmp_path, monkeypatch):
         from tools import write_file
-        f = tmp_path / "out.txt"
-        f.write_text("a", encoding="utf-8")
-        result = _invoke_langchain_tool(write_file, str(f), "b", append=True)
-        assert f.read_text(encoding="utf-8") == "ab"
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "out.txt").write_text("a", encoding="utf-8")
+        result = _invoke_langchain_tool(write_file, "out.txt", "b", append=True)
+        assert (tmp_path / "out.txt").read_text(encoding="utf-8") == "ab"
 
     def test_write_file_traversal_denied(self):
         from tools import write_file
         result = _invoke_langchain_tool(write_file, "../bad.txt", "x")
         assert "不允许" in result or "❌" in result
 
-    def test_list_files_success(self, tmp_path):
+    def test_list_files_success(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
         (tmp_path / "a.txt").write_text("x", encoding="utf-8")
         (tmp_path / "b").mkdir()
         from tools import list_files
-        result = _invoke_langchain_tool(list_files, str(tmp_path))
+        result = _invoke_langchain_tool(list_files, ".")
         assert "a.txt" in result
         assert "b" in result
 
-    def test_list_files_empty(self, tmp_path):
+    def test_list_files_empty(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
         from tools import list_files
-        result = _invoke_langchain_tool(list_files, str(tmp_path))
+        result = _invoke_langchain_tool(list_files, ".")
         assert "空" in result or result == ""
 
     def test_list_files_not_found(self):
@@ -246,19 +250,26 @@ class TestSearchWeb:
 class TestKnowledgeBase:
 
     def test_query_kb_no_rag(self):
-        from tools import query_knowledge_base
-        with patch("tools.get_rag_instance", return_value=None):
+        from tools import query_knowledge_base, set_rag_instance
+        # 通过 set_rag_instance 让工具看到 None（@tool 重写了模块，无法 patch 原 _rag_instance）
+        set_rag_instance(None)
+        try:
             result = _invoke_langchain_tool(query_knowledge_base, "test")
             assert "未初始化" in result or "请先" in result
+        finally:
+            set_rag_instance(None)
 
     def test_query_kb_with_rag(self):
-        from tools import query_knowledge_base
+        from tools import query_knowledge_base, set_rag_instance
         mock_rag = MagicMock()
         mock_rag.query.return_value = "Answer from RAG"
-        with patch("tools.get_rag_instance", return_value=mock_rag):
+        set_rag_instance(mock_rag)
+        try:
             result = _invoke_langchain_tool(query_knowledge_base, "test")
             assert "Answer from RAG" in result
             mock_rag.query.assert_called_once()
+        finally:
+            set_rag_instance(None)
 
     def test_load_kb_success(self, tmp_path):
         from tools import load_knowledge_base
