@@ -80,3 +80,4 @@ ai_agent/uploads/
 
 # 截图工具临时文件
 ai_agent/docs/screenshot_setup.html
+.git_commit_msg.txt
