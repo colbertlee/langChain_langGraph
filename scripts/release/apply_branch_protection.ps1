@@ -1,16 +1,16 @@
 # scripts/release/apply_branch_protection.ps1
-# 为 master / release/* 分支一键启用 GitHub 分支保护规则(Windows PowerShell 版)。
+# Enable GitHub branch protection for master / release/* branches (Windows PowerShell).
 #
-# 用法:
+# Usage:
 #   $env:GH_TOKEN = "ghp_xxx"
 #   .\apply_branch_protection.ps1 master
 #   .\apply_branch_protection.ps1 release/v2.0.7-cleanup-verified
 #
-# 前置条件:
-#   - GH_TOKEN 需包含 repo scope
-#   - 目标分支已存在并与本地一致
+# Prereq:
+#   - GH_TOKEN must have repo scope
+#   - target branch must already exist
 #
-# 参考:docs/VERSION_MANAGEMENT.md §7.5
+# Ref: docs/VERSION_MANAGEMENT.md section 7.5
 
 [CmdletBinding()]
 param(
@@ -23,14 +23,15 @@ $ErrorActionPreference = "Stop"
 $Repo = if ($env:GH_REPO) { $env:GH_REPO } else { "colbertlee/langChain_langGraph" }
 
 if (-not $env:GH_TOKEN) {
-    Write-Error "错误:GH_TOKEN 环境变量未设置"
+    Write-Error "GH_TOKEN env var is not set"
     exit 1
 }
 
-# 根据分支名选择 payload
 switch -Wildcard ($Branch) {
     "master" {
+        # required_status_checks + restrictions MUST be present (even as null) per GitHub REST API.
         $Payload = @{
+            required_status_checks           = $null
             enforce_admins                   = $true
             required_pull_request_reviews    = @{
                 dismiss_stale_reviews          = $true
@@ -38,6 +39,7 @@ switch -Wildcard ($Branch) {
                 required_approving_review_count = 1
                 require_last_push_approval     = $true
             }
+            restrictions                     = $null
             required_linear_history          = $true
             allow_force_pushes               = $false
             allow_deletions                  = $false
@@ -49,8 +51,10 @@ switch -Wildcard ($Branch) {
     }
     "release/*" {
         $Payload = @{
+            required_status_checks           = $null
             enforce_admins                   = $false
             required_pull_request_reviews    = $null
+            restrictions                     = $null
             required_linear_history          = $false
             allow_force_pushes               = $false
             allow_deletions                  = $false
@@ -61,7 +65,7 @@ switch -Wildcard ($Branch) {
         }
     }
     default {
-        Write-Error "错误:不支持的分支 '$Branch'`n支持的模式:master | release/*"
+        Write-Error "Unsupported branch '$Branch'. Supported: master | release/*"
         exit 1
     }
 }
@@ -70,7 +74,7 @@ $Json = $Payload | ConvertTo-Json -Depth 10 -Compress
 $Json | Set-Content -Path "$env:TEMP\gh_protect_payload.json" -Encoding UTF8 -NoNewline
 
 $Url = "https://api.github.com/repos/$Repo/branches/$Branch/protection"
-Write-Host ">>> 正在为 ${Repo}@${Branch} 应用分支保护..."
+Write-Host ">>> Applying branch protection to ${Repo}@${Branch}..."
 
 try {
     $Resp = Invoke-RestMethod -Method PUT `
@@ -82,7 +86,7 @@ try {
         -ContentType "application/json" `
         -Body (Get-Content "$env:TEMP\gh_protect_payload.json" -Raw)
 
-    Write-Host "✓ 分支保护已启用 (HTTP 200)" -ForegroundColor Green
+    Write-Host "[OK] Branch protection enabled (HTTP 200)" -ForegroundColor Green
     Write-Host "  enforce_admins:           $($Resp.enforce_admins.enabled)"
     Write-Host "  required_linear_history:  $($Resp.required_linear_history.enabled)"
     Write-Host "  allow_force_pushes:       $($Resp.allow_force_pushes.enabled)"
@@ -94,6 +98,6 @@ try {
 catch {
     $Code = $_.Exception.Response.StatusCode.value__
     $Body = $_.Exception.Response | ConvertFrom-Json -ErrorAction SilentlyContinue
-    Write-Error "✗ 启用失败 (HTTP $Code): $($Body.message)"
+    Write-Error "[FAIL] HTTP $Code : $($Body.message)"
     exit 2
 }

@@ -32,7 +32,9 @@ fi
 # 根据分支名选择保护规则 payload
 case "$BRANCH" in
   master)
+    # required_status_checks + restrictions MUST be present (even as null) per GitHub REST API.
     PAYLOAD='{
+      "required_status_checks": null,
       "enforce_admins": true,
       "required_pull_request_reviews": {
         "dismiss_stale_reviews": true,
@@ -40,6 +42,7 @@ case "$BRANCH" in
         "required_approving_review_count": 1,
         "require_last_push_approval": true
       },
+      "restrictions": null,
       "required_linear_history": true,
       "allow_force_pushes": false,
       "allow_deletions": false,
@@ -51,8 +54,10 @@ case "$BRANCH" in
     ;;
   release/*)
     PAYLOAD='{
+      "required_status_checks": null,
       "enforce_admins": false,
       "required_pull_request_reviews": null,
+      "restrictions": null,
       "required_linear_history": false,
       "allow_force_pushes": false,
       "allow_deletions": false,
