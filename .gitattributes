@@ -1,0 +1,40 @@
+# .gitattributes
+# 强制各文件类型的换行策略,避免 Windows 上 core.autocrlf 把 .sh / .bat 之外的脚本改坏。
+
+# Shell 脚本必须 LF(否则 shebang 在 Linux 环境会失败)
+*.sh text eol=lf
+
+# PowerShell 脚本:Windows 用 CRLF,跨平台编辑器更稳
+*.ps1 text eol=crlf
+
+# Markdown / YAML / JSON / TOML:统一 LF
+*.md text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+
+# Python:统一 LF(PEP 8 推荐)
+*.py text eol=lf
+
+# 前端
+*.ts text eol=lf
+*.tsx text eol=lf
+*.js text eol=lf
+*.jsx text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+
+# 二进制文件(避免 Git 误判 diff)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.tar.gz binary
+*.whl binary
+*.exe binary
+*.db binary
