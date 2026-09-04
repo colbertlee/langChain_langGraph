@@ -5,7 +5,12 @@
 >
 > 适用仓库:`colbertlee/langChain_langGraph`(镜像:`gitee.com/colbertlee/langChain_langGraph`)
 > 适用版本:**v2.0.7 起**
-> 最近更新:2026-09-03(v2.0.7 release 后,新增 §7.5 / §7.6)
+> 最近更新:2026-09-04(新增 §7.7 release CI + webhook sub-command + INCIDENT_REPORT 引用)
+>
+> **配套文档**:
+> - [POST_CLEANUP_VERIFICATION.md](POST_CLEANUP_VERIFICATION.md) — v2.0.7 cleanup 后的四层 QA 报告
+> - [INCIDENT_REPORT_v2.0.7.md](INCIDENT_REPORT_v2.0.7.md) — v2.0.7 release 的 6 个 incident 事后复盘
+> - [`scripts/release/release_cli.py`](../scripts/release/release_cli.py) — SOP 工具化入口
 
 ---
 
@@ -528,6 +533,60 @@ git fetch --prune origin
 - §7.6 是**发布后**强制的清理清单(§7.1 的发布特化版)
 - 两者**不可替代**:即使你按 §7.1 删除了所有 orphan,如果跳过了 §7.6
   的"切换默认分支"步骤,你会无法删除 orphan `main`(`422 Cannot delete the default branch`)
+
+### 7.7 release CI + webhook 子命令
+
+#### 7.7.1 tag push → build → release CI
+
+仓库提供 [`.github/workflows/release.yml`](../.github/workflows/release.yml),触发条件:
+
+```yaml
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+  workflow_dispatch:
+    inputs:
+      version: "2.0.8"
+```
+
+执行流程:
+1. Checkout repo
+2. Build sdist + wheel(若有 `pyproject.toml`)
+3. 打包 source tarball
+4. 自动生成 release notes(从上次 tag 到 HEAD 的 commit log)
+5. `release_cli.py github X.Y.Z --body notes.md --asset dist/*.whl`
+6. 若 `GITEE_TOKEN` 存在,`release_cli.py gitee X.Y.Z --create-release ...`
+7. 若设置了 `pr_number` 输入,`release_cli.py webhook --pr-number ... --label release`
+
+#### 7.7.2 PR merge → 自动 label workflow
+
+[`.github/workflows/pr-merge-label.yml`](../.github/workflows/pr-merge-label.yml) 监听
+`pull_request.closed` 事件:
+
+- 仅对**已 merge** 且**标题含 "Release" / "release"** 的 PR 触发
+- 调用 `release_cli.py webhook --action merged --label release`
+- 自动创建 label(若不存在)+ apply label + post confirmation comment
+
+#### 7.7.3 webhook 子命令独立用法
+
+```bash
+# 给任意已 merge 的 PR 打 merged label
+GH_TOKEN=xxx PR_NUMBER=42 \
+  python scripts/release/release_cli.py webhook \
+  --pr-number 42 --label merged --comment "Released."
+
+# 关闭 PR(只打 label)
+python scripts/release/release_cli.py webhook \
+  --pr-number 43 --action closed --label wontfix
+```
+
+### 7.8 配套文档
+
+| 文档 | 内容 |
+|---|---|
+| [POST_CLEANUP_VERIFICATION.md](POST_CLEANUP_VERIFICATION.md) | v2.0.7 cleanup 后的四层 QA 报告(静态/单测/agent smoke/运行时) |
+| [INCIDENT_REPORT_v2.0.7.md](INCIDENT_REPORT_v2.0.7.md) | v2.0.7 release 6 个 incident 事后复盘 + 行动项 |
 
 ---
 
