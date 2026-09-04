@@ -1,0 +1,60 @@
+name: Eval Harness
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ai_agent/agent.py"
+      - "ai_agent/tools.py"
+      - "ai_agent/harness_*.py"
+      - "ai_agent/evals/sets/**"
+  pull_request:
+    paths:
+      - "ai_agent/agent.py"
+      - "ai_agent/tools.py"
+      - "ai_agent/harness_*.py"
+      - "ai_agent/evals/sets/**"
+  workflow_dispatch:
+
+jobs:
+  harness-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        working-directory: ai_agent
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install pytest pytest-asyncio
+
+      - name: Unit tests for harness module
+        working-directory: ai_agent
+        run: |
+          python -m pytest tests/test_harness.py -v --no-cov
+
+      # dry-run 模式不调 LLM,适合冒烟;真实跑需要 OPENAI_API_KEY
+      - name: Harness smoke (dry-run, no LLM)
+        working-directory: ai_agent
+        run: |
+          python harness_cli.py \
+            --set evals/sets/smoke_v1.jsonl \
+            --out evals/runs \
+            --tag ci \
+            --threshold 0.5 \
+            --dry-run
+
+      - name: Upload harness artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-runs-${{ github.run_id }}
+          path: ai_agent/evals/runs/harness_*_ci/
+          if-no-files-found: ignore
