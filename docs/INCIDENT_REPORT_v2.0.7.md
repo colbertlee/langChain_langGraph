@@ -187,6 +187,56 @@ appear in greenfield releases.
 
 ---
 
+### I-7 · PAT scope mismatch blocks `.github/workflows/*.yml` push
+
+**Severity**: Medium (release CI can't run unattended)
+**Surface**: 2026-09-04 during PR #4 push
+
+**What happened**: When attempting to push the new release CI workflows
+(`.github/workflows/release.yml` and `.github/workflows/pr-merge-label.yml`),
+GitHub returned:
+
+```
+! [remote rejected] feat/... -> feat/...
+  (refusing to allow a Personal Access Token to create or update workflow
+   `.github/workflows/pr-merge-label.yml` without `workflow` scope)
+```
+
+**Root cause**: The currently configured PAT has only `repo` scope, but
+modifying GitHub Actions workflow files additionally requires `workflow` scope.
+This is a deliberate GitHub safety measure to prevent compromised tokens
+from silently adding malicious CI jobs.
+
+**Why it wasn't caught earlier**: No prior PR in this repo touched
+`.github/workflows/`, so the scope gap was never exercised.
+
+**Mitigation (workaround used in this PR)**:
+- Split A-3/A-4 into a separate PR
+- The workflow files are **committed locally** and exist in the working tree
+  but are not pushed
+- Manual upload via GitHub web UI is possible if/when CI is needed urgently
+
+**Permanent fix (TODO)**:
+1. Generate a new PAT at <https://github.com/settings/tokens/new> with scopes:
+   - `repo` (full)
+   - `workflow` (required for workflow edits)
+2. Update `$env:GH_TOKEN` (local) and `GH_TOKEN` secret (CI) to use the new PAT
+3. Re-attempt the workflow push
+
+**Preventive control**:
+- Add a pre-flight check to `release_cli.py`:
+  ```python
+  def _check_workflow_scope(token: str, repo: str) -> bool:
+      # HEAD /repos/{}/contents/.github/workflows/.placeholder returns 404 for no scope
+      ...
+  ```
+- Document required scopes in `docs/VERSION_MANAGEMENT.md` §0 (preflight)
+
+**Lesson learned**: PAT scope drift is **silent** — most operations succeed,
+only the few that touch workflows expose it. Audit PAT scopes annually.
+
+---
+
 ### I-6 · Cleanup backup branch `chore/project-cleanup-backup` lingered
 
 **Severity**: Low (cosmetic, but risk of confusion)
@@ -273,6 +323,9 @@ into thinking the cleanup hadn't happened.
 
 6. **Tags are mutable until first fetch**. Decide explicitly which side
    wins on conflict (we chose: remote wins, never force-push).
+7. **PAT scopes silently rot**. A token created for `repo` only will pass
+   most CI checks but fail at the first workflow push. Document the
+   required scopes in the SOP, audit annually.
 
 ---
 
