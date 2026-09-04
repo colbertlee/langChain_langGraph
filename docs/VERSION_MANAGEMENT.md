@@ -315,7 +315,13 @@ curl -s -H "Authorization: token $GH_TOKEN" \
 
 #### 7.5.2 master 保护规则
 
-通过 GitHub API 设置(详见 §7.5.4):
+通过 GitHub API 设置(详见 §7.5.4)。
+
+> ⚠️ GitHub REST API 当前要求 PUT body **必须显式** 包含 `required_status_checks`
+> 和 `restrictions` 字段(即使为 `null`),否则返回 `422 Invalid request`。
+> 这一点是 v2.0.7 启用分支保护时实测发现,已固化为 payload 模板。
+
+**多人协作仓库(推荐)**:
 
 ```json
 {
@@ -340,11 +346,53 @@ curl -s -H "Authorization: token $GH_TOKEN" \
 ```
 
 含义:
-- ✅ PR 必须经过 1 人 approve
+- ✅ PR 必须经过 1 人 approve(且 approve 者不能是 PR 作者)
 - ✅ 必须 linear history(禁止 merge commit 噪音)
 - ✅ 禁止 force push
 - ✅ 禁止删除分支
 - ❌ 不强制 status checks(本仓库暂未配置 CI;若后续接入 Actions 再启用)
+
+**单 owner 仓库(本仓库现状)**:
+
+GitHub 行为:`required_approving_review_count >= 1` + `require_last_push_approval=true`
+时,owner 自己推的 PR **自己无法 merge**(必须由别人 approve);而 `enforce_admins=true`
+让 admin 也不能绕过。**单 owner 仓库无法形成完整的 PR + approve 闭环**。
+
+调整方案(已在本仓库 v2.0.7 release 后落地验证):
+
+```json
+{
+  "required_status_checks": null,
+  "enforce_admins": true,
+  "required_pull_request_reviews": {
+    "dismissal_restrictions": {},
+    "dismiss_stale_reviews": true,
+    "require_code_owner_reviews": false,
+    "required_approving_review_count": 0,
+    "require_last_push_approval": false
+  },
+  "restrictions": null,
+  "required_linear_history": true,
+  "allow_force_pushes": false,
+  "allow_deletions": false,
+  "block_creations": false,
+  "required_conversation_resolution": true,
+  "lock_branch": false,
+  "allow_fork_syncing": false
+}
+```
+
+⚠️ **单 owner 仓库下,你损失的只是"PR 流程审计痕迹",但仍然保留**:
+- ✅ 必须走 PR(不能直接 push)
+- ✅ linear history
+- ✅ 禁止 force push
+- ✅ 禁止删除分支
+- ✅ 阻塞未解决的对话
+- ✅ enforce_admins 让 admin 也必须走 PR
+
+> **何时升级回多人规则**:仓库有第二个 maintainer 出现时,立即执行
+> `python scripts/release/release_cli.py protect master --enforce-admins` 配合
+> 上方"多人协作"模板,把 `required_approving_review_count` 改回 1。
 
 #### 7.5.3 release/* 保护规则
 
