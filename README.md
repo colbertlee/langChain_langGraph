@@ -975,6 +975,7 @@ langChain_langGraph/
 │   ├── e2e/                        # Playwright 测试 + 视觉回归 baseline
 │   ├── .github/                    # workflows + 发版/分支/容器/页面/PyPI/Tap 指南
 │   ├── scripts/                    # 升级检查 / 创建 tap 仓库 / 分支保护 / 视觉 baseline
+│   │   └── release/                # 🆕 发布工具集: release_cli.py + apply_branch_protection.{sh,ps1}
 │   ├── Dockerfile / docker-compose 引用
 │   ├── package.json / vite.config.ts / tailwind.config.js / tsconfig*.json
 │   ├── playwright.config.ts / vitest.config.ts
@@ -1078,6 +1079,7 @@ langChain_langGraph/
 | **运维**(想部署) | README §6 → DISTRIBUTION(选渠道) → CHANGELOG Migration |
 | **架构师**(评估是否引入) | README §0 §1.0 §3 → docs/TECHNICAL_ARCHITECTURE.md |
 | **API 集成方** | docs/API.md → README §3 → web_console/src/lib/api.ts |
+| **发布负责人**(打 tag / release) | docs/VERSION_MANAGEMENT.md → scripts/release/release_cli.py → .github/PULL_REQUEST_TEMPLATE/release.md |
 
 ---
 

@@ -368,6 +368,19 @@ curl -s -H "Authorization: token $GH_TOKEN" \
 
 #### 7.5.4 一键应用脚本
 
+仓库内提供 3 种调用方式,功能等价,选一种即可:
+
+| 入口 | 平台 | 调用方式 |
+|---|---|---|
+| [`scripts/release/apply_branch_protection.sh`](../scripts/release/apply_branch_protection.sh) | Linux / macOS / Git Bash | `GH_TOKEN=ghp_xxx ./apply_branch_protection.sh master` |
+| [`scripts/release/apply_branch_protection.ps1`](../scripts/release/apply_branch_protection.ps1) | Windows PowerShell | `$env:GH_TOKEN="ghp_xxx"; .\apply_branch_protection.ps1 master` |
+| [`scripts/release/release_cli.py`](../scripts/release/release_cli.py) `protect` | 跨平台(集成在统一 CLI 中) | `python scripts/release/release_cli.py protect master --enforce-admins` |
+
+`release_cli.py protect` 子命令会自动按平台选择 `.ps1` 或 `.sh`,并支持 `--enforce-admins=true|false`
+二次 patch(用于单 owner 仓库首批 SOP 落地的临时绕过场景)。
+
+下面是底层 `.sh` 实现参考,功能与上述三个入口等价:
+
 ```bash
 # scripts/release/apply_branch_protection.sh
 # 用法:GH_TOKEN=ghp_xxx ./apply_branch_protection.sh
