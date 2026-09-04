@@ -1,0 +1,4 @@
+{"id":"echo-1","prompt":"echo: hi","expected":"echo: hi","scorers":["keyword"],"category":"smoke"}
+{"id":"calc-1","prompt":"echo: 1+2","expected":"echo: 1+2","scorers":["keyword"],"category":"smoke"}
+{"id":"greet-1","prompt":"用中文回答:你好","expected":"你好","scorers":["keyword"],"category":"smoke"}
+{"id":"qa-embed-1","prompt":"介绍 LangChain 的主要用途","reference":"LangChain 是一个用于构建 LLM 应用的框架","scorers":["keyword","embed"],"category":"qa"}

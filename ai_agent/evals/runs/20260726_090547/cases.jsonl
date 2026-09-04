@@ -1,0 +1,8 @@
+{"name": "intent_greet_zh", "category": "intent_routing", "passed": false, "duration_ms": 0.0, "detail": "no runner registered for category='intent_routing'", "observed": null}
+{"name": "intent_query_zh", "category": "intent_routing", "passed": false, "duration_ms": 0.0, "detail": "no runner registered for category='intent_routing'", "observed": null}
+{"name": "intent_calc_zh", "category": "intent_routing", "passed": false, "duration_ms": 0.0, "detail": "no runner registered for category='intent_routing'", "observed": null}
+{"name": "intent_analysis_zh", "category": "intent_routing", "passed": false, "duration_ms": 0.0, "detail": "no runner registered for category='intent_routing'", "observed": null}
+{"name": "intent_command_zh", "category": "intent_routing", "passed": false, "duration_ms": 0.0, "detail": "no runner registered for category='intent_routing'", "observed": null}
+{"name": "intent_query_en", "category": "intent_routing", "passed": false, "duration_ms": 0.0, "detail": "no runner registered for category='intent_routing'", "observed": null}
+{"name": "intent_compare_en", "category": "intent_routing", "passed": false, "duration_ms": 0.0, "detail": "no runner registered for category='intent_routing'", "observed": null}
+{"name": "intent_general_fallback", "category": "intent_routing", "passed": false, "duration_ms": 0.0, "detail": "no runner registered for category='intent_routing'", "observed": null}

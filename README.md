@@ -103,6 +103,9 @@
 | 可观测性 | 事件流、Trace、Prometheus 文本、A/B 测试、自适应阈值 | `ai_agent/observability.py`、`monitor.py`、`ab_testing.py` |
 | Prompt 工程 | System/Role/Tool 三段注册中心 + 版本化 + 回滚；User Prompt 模板 + few-shot + 安全改写 | `ai_agent/prompt_registry.py`、`user_prompt_registry.py` |
 | 流式协议 | SSE + WebSocket 双协议，结构化事件 `start / thinking / chunk / tool_call / safety / error / complete` | `ai_agent/app.py`、`web/index.html` |
+| Harness 运行时门面 | 可配置 planner / memory / observability / security / sandbox + Trace dataclass + 依赖注入 + 配套 Eval Harness (JSONL + Scorerers) | `ai_agent/harness.py`、`harness_runner.py`、`harness_cli.py` |
+| v2.0 slim runtime | 5 个老模块合 3 个（`tools_v2.py` / `memory_store_v2.py` / `multi_agent_v2.py` + `approval.py` + `telemetry.py`），其他能力用 `frozen()` 抛 `NotImplementedError` | `ai_agent/v2_slim/` |
+| Staging 监控 | 15 个 staging 探针 + 24h 探针循环 + 部署 checklist | `ai_agent/tests/test_staging_monitor.py`、`ai_agent/scripts/staging_monitor_loop.py` |
 | 桌面分发 | PyInstaller 单文件 exe / bin，Windows / Linux / macOS 全平台 | `ai_agent/ai_agent.spec`、`build_windows.ps1`、`build_linux.sh` |
 | 容器分发 | Docker 多阶段构建（前端 + 后端），`docker compose` 一键启动 | `web_console/Dockerfile`、`docker-compose.yml` |
 | 包分发 | PyPI（PEP 740 OIDC provenance）、GHCR、Scoop、Homebrew、GitHub Release | `.github/workflows/release.yml`、`web_console/.github/PACKAGE_DISTRIBUTION.md` |
@@ -1027,6 +1030,8 @@ langChain_langGraph/
 
 ## 附录 · 版本与更新
 
+- **v2.0.9**（2026-09-04）：Harness 门面 + v2.0 slim runtime（5 模块合 3） + Release CI / merge-label workflows + 11 个新 test 模块（slim profile 613 passed）。详见 [release_notes/v2.0.9.md](file:///e:/langChain_langGraph/release_notes/v2.0.9.md) 与 [CHANGELOG.md](file:///e:/langChain_langGraph/CHANGELOG.md)。
+- **v2.0.8**（2026-09-04）：Tooling/Process：统一发布 CLI + 分支保护 + Release SOP + v2.0.7 incident retro（7 个 incident）。详见 [release_notes/v2.0.8.md](file:///e:/langChain_langGraph/release_notes/v2.0.8.md)。
 - **v1.1.0**（2026-07-22）：多级容错 / 结构化上下文 / 统一记忆 / 多 Agent 编排 / 协商竞价 / 可靠性层 / 能力注册 / 分布式总线 / ETF 分析 / 安全增强 / 11 家 Provider。
 - **v1.0.0**（2026-07-18）：初始版本（LangChain 1.x + LangGraph 基础、12 个工具、RAG、MCP、GitHub/Gitee 集成、Web UI + CLI）。
 - 详细变更：[CHANGELOG.md](file:///e:/langChain_langGraph/CHANGELOG.md)、[ai_agent/CHANGELOG.md](file:///e:/langChain_langGraph/ai_agent/CHANGELOG.md)。

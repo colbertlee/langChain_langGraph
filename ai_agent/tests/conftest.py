@@ -113,6 +113,56 @@ def sample_upload_file(tmp_path: Path):
 
 # ─────────────── 自动标记 ───────────────
 
+
+@pytest.fixture(autouse=True)
+def _reset_agent_state_between_tests(request, monkeypatch):
+    """每个测试前后重置 app._agent_instance / app._proxy_instance，
+    并在测试期间把 OPENAI_API_KEY 强制替换为 placeholder（避免真实远程调用）。
+
+    原因：
+    1. isolated_env fixture 注入 fake API key 后，get_agent() 会真正初始化 AIAgent
+       （触发 11 provider 远程调用，每次 30s timeout）。
+    2. 用户环境可能设置了真实的 OPENAI_API_KEY=sk-demo1234567890123，
+       这个 key 不在 placeholder markers 中 → 触发真实 LLM 调用。
+    3. 如果某个测试先用 isolated_env 初始化了 agent，后续 test 看到 _agent_instance
+       已缓存，会继续使用该 agent → SSE 测试卡 30s+。
+
+    策略：每个测试期间：
+    - 用 monkeypatch.setenv("OPENAI_API_KEY", "sk-placeholder-for-tests") 强制短路
+    - 清空 app 的模块全局状态（_agent_instance / _proxy_instance）
+    """
+    # 前置 reset（避免上一个测试残留）
+    try:
+        import app as _app
+        _app._agent_instance = None
+        _app._proxy_instance = None
+    except Exception:
+        pass
+    try:
+        import web_ui as _webui
+        _webui._agent_holder["agent"] = None
+    except Exception:
+        pass
+    # 强制 env 含 placeholder key（覆盖用户真实 key）
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-placeholder-for-tests")
+    # 强制启用 placeholder 短路（防止某些 module-level os.environ["AI_AGENT_DISABLE_PLACEHOLDER_CHECK"]="0"
+    # 永久污染进程 env；如 test_app_e2e.py:19）
+    monkeypatch.setenv("AI_AGENT_DISABLE_PLACEHOLDER_CHECK", "1")
+    yield
+    # 后置 reset（避免下一个测试看到本测试的状态）
+    try:
+        import app as _app
+        _app._agent_instance = None
+        _app._proxy_instance = None
+    except Exception:
+        pass
+    try:
+        import web_ui as _webui
+        _webui._agent_holder["agent"] = None
+    except Exception:
+        pass
+
+
 def pytest_collection_modifyitems(config, items):
     """自动给测试加 marker 标签。
 

@@ -5,12 +5,15 @@
 >
 > 适用仓库:`colbertlee/langChain_langGraph`(镜像:`gitee.com/colbertlee/langChain_langGraph`)
 > 适用版本:**v2.0.7 起**
-> 最近更新:2026-09-04(新增 §7.7 release CI + webhook sub-command + INCIDENT_REPORT 引用)
+> 最近更新:2026-09-04(v2.0.9 同步:Harness + v2.0 slim + release CI workflow 落地)
 >
 > **配套文档**:
+> - [release_notes/v2.0.9.md](../release_notes/v2.0.9.md) — Harness + v2.0 slim runtime 发布说明
+> - [release_notes/v2.0.8.md](../release_notes/v2.0.8.md) — Tooling / process 发布说明
 > - [POST_CLEANUP_VERIFICATION.md](POST_CLEANUP_VERIFICATION.md) — v2.0.7 cleanup 后的四层 QA 报告
 > - [INCIDENT_REPORT_v2.0.7.md](INCIDENT_REPORT_v2.0.7.md) — v2.0.7 release 的 6 个 incident 事后复盘
 > - [`scripts/release/release_cli.py`](../scripts/release/release_cli.py) — SOP 工具化入口
+> - [`.github/workflows/release.yml`](../.github/workflows/release.yml) — tag 驱动的 release 流水线(v2.0.9 落地)
 
 ---
 
@@ -643,4 +646,5 @@ gh release view vX.Y.Z --json tagName,targetCommitish
 
 | 日期 | 版本 | 变更 |
 |---|---|---|
+| 2026-09-04 | v2.0.9 | 同步 Harness + v2.0 slim + release CI workflow;补充 release.yml / pr-merge-label.yml 引用 |
 | 2026-09-03 | v2.0.7 | 首次发布本文件(此前 commit message 提及但文件未创建);新增 §7.5 分支保护、§7.6 orphan cleanup SOP |

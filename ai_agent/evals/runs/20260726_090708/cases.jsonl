@@ -1,0 +1,8 @@
+{"name": "intent_greet_zh", "category": "intent_routing", "passed": true, "duration_ms": 0.012900000001536682, "detail": "expected=greeting got=greeting", "observed": "greeting"}
+{"name": "intent_query_zh", "category": "intent_routing", "passed": true, "duration_ms": 0.019300000076327706, "detail": "expected=query got=query", "observed": "query"}
+{"name": "intent_calc_zh", "category": "intent_routing", "passed": true, "duration_ms": 0.003600000127335079, "detail": "expected=calculate got=calculate", "observed": "calculate"}
+{"name": "intent_analysis_zh", "category": "intent_routing", "passed": true, "duration_ms": 0.011900000117748277, "detail": "expected=analysis got=analysis", "observed": "analysis"}
+{"name": "intent_command_zh", "category": "intent_routing", "passed": true, "duration_ms": 0.004699999863078119, "detail": "expected=command got=command", "observed": "command"}
+{"name": "intent_query_en", "category": "intent_routing", "passed": true, "duration_ms": 0.004999999873689376, "detail": "expected=query got=query", "observed": "query"}
+{"name": "intent_compare_en", "category": "intent_routing", "passed": false, "duration_ms": 0.003099999958067201, "detail": "expected=compare got=analysis", "observed": "analysis"}
+{"name": "intent_general_fallback", "category": "intent_routing", "passed": true, "duration_ms": 0.004800000169780105, "detail": "expected=general got=general", "observed": "general"}

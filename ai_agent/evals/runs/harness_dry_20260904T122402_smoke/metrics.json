@@ -1,0 +1,25 @@
+{
+  "run_id": "harness_dry_20260904T122402",
+  "pass_rate": 1.0,
+  "mean_score": 1.0,
+  "p50_latency_ms": 0.0,
+  "p95_latency_ms": 0.0,
+  "by_category": {
+    "smoke": {
+      "total": 3.0,
+      "passed": 3.0,
+      "pass_rate": 1.0,
+      "mean_score": 1.0
+    },
+    "qa": {
+      "total": 1.0,
+      "passed": 1.0,
+      "pass_rate": 1.0,
+      "mean_score": 1.0
+    }
+  },
+  "set_path": "evals/sets/smoke_v1.jsonl",
+  "config": {
+    "dry_run": true
+  }
+}

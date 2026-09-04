@@ -1,0 +1,50 @@
+{
+  "started_at": "2026-07-31T08:23:25",
+  "finished_at": "2026-07-31T08:23:25",
+  "cases_total": 5,
+  "cases_passed": 5,
+  "cases_failed": 0,
+  "cases_errored": 0,
+  "cases": [
+    {
+      "name": "intent_greet",
+      "category": "intent_routing",
+      "passed": true,
+      "duration_ms": 0.010399991879239678,
+      "detail": "expected=greeting got=greeting",
+      "observed": "greeting"
+    },
+    {
+      "name": "intent_calc",
+      "category": "intent_routing",
+      "passed": true,
+      "duration_ms": 0.21130000823177397,
+      "detail": "expected=calculate got=calculate",
+      "observed": "calculate"
+    },
+    {
+      "name": "safe_query",
+      "category": "safety",
+      "passed": true,
+      "duration_ms": 0.02059999678749591,
+      "detail": "expect_blocked=False got=False",
+      "observed": "safe"
+    },
+    {
+      "name": "calc_1+2",
+      "category": "calculator",
+      "passed": true,
+      "duration_ms": 5.741799992392771,
+      "detail": "expected=3.0 got=3.0 tol=0.0",
+      "observed": 3.0
+    },
+    {
+      "name": "calc_3*4",
+      "category": "calculator",
+      "passed": true,
+      "duration_ms": 0.36249999538995326,
+      "detail": "expected=12.0 got=12.0 tol=0.0",
+      "observed": 12.0
+    }
+  ]
+}

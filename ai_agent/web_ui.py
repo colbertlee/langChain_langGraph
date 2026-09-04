@@ -572,9 +572,11 @@ async def _sse_event_stream(prompt: str, session_id: Optional[str] = None):
         return
 
     try:
-        async for chunk in agent.run_stream(prompt):
-            event_type = chunk.get("type", "chunk")
-            yield f"event: {event_type}\ndata: {json.dumps(chunk)}\n\n"
+        # 修复 v2.0 slim：FastAPI 已在主线程 asyncio loop 中，
+        # agent.run_stream 是 async generator 可能跨入 message_bus 死锁。
+        # 直接调 agent.run()（同步路径已被修复为同步 fallback）。
+        text = agent.run(prompt, session_id=session_id) if hasattr(agent, "run") else ""
+        yield f"event: chunk\ndata: {json.dumps({'type': 'chunk', 'data': text}, ensure_ascii=False)}\n\n"
     except Exception as e:
         logger.error(f"stream error: {e}")
         yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"

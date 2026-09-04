@@ -112,6 +112,22 @@ ai_agent/
 ├── observability.py             # 可观测性（事件 / Trace / Prometheus）
 ├── monitor.py                   # 性能监控（token / 耗时 / 错误率）
 │
+├── # ───────── Harness (v2.0.9+) ─────────
+├── harness.py                   # Agent 运行时门面 (Trace + 依赖注入)
+├── harness_runner.py            # Eval Harness: JSONL + Scorerers + Runner
+├── harness_storage.py           # 落盘 evals/runs/<ts>/{cases,summary,metrics}.json
+├── harness_cli.py               # harness run/dry-run CLI 入口
+├── harness_observability.py     # Trace → observability 落盘回环
+├── v2_slim/                     # v2.0 slim runtime(默认启用;LEGACY_MODE 切回)
+│   ├── tools_v2.py              # 6 个复合 @tool(subcommand Literal)
+│   ├── memory_store_v2.py       # ShortTermContext + LongTermKnowledge
+│   ├── multi_agent_v2.py        # 仅 SEQUENTIAL + SUPERVISOR
+│   ├── multi_agent_router.py    # LEGACY_MODE 路由统一门面
+│   ├── approval.py              # ApprovalGate + RBAC Policy
+│   ├── telemetry.py             # 合并 observability + monitor + json_log
+│   ├── frozen.py                # @frozen("name")() → NotImplementedError
+│   ├── frozen_modules.py        # frozen 名称注册表
+│   └── *_legacy.py              # LEGACY 兜底实现
 ├── # ───────── 辅助模块 ─────────
 ├── ab_testing.py                # A/B 测试框架
 ├── adaptive_threshold.py        # 自适应阈值
@@ -944,6 +960,8 @@ CI 自动跑测试 + 上传覆盖率报告到 Actions artifact。
 
 ## 版本历史
 
+- **v2.0.9**（2026-09-04）：Harness 运行时门面 + Eval Harness + v2.0 slim runtime（5 模块合 3:frozen/`approval`/`telemetry` + 6 个复合 tool + 双记忆模型 + 精简多 Agent）+ Release CI / merge-label workflows + staging monitor + 11 个新 test 模块。详见 [`release_notes/v2.0.9.md`](../release_notes/v2.0.9.md)。
+- **v2.0.8**（2026-09-04）：Tooling/Process：统一 release_cli.py + 分支保护 SOP + v2.0.7 incident retro。
 - **v0.3.0**（2026-07-23）：阶段 B，新增 4 个国产模型 Provider（豆包 / Hunyuan / SiliconFlow / MiniMax），扩充老 Provider 最新模型，分组化 Provider 元数据。
 - **v0.2.0**（2026-07-23）：阶段 A，`prompt_registry.py` + `run_stream` 结构化事件 + `/api/prompts` 回滚 + 前端工具调用时间线 + 思维链折叠面板 + 安全横幅。
 - **v0.1.0**：初版。

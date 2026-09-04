@@ -124,16 +124,20 @@ class TestBasics:
 
 class TestFileTools:
 
-    def test_read_file_success(self, tmp_path):
+    def test_read_file_success(self, tmp_path, monkeypatch):
+        # v2 slim 兼容性：read_file 在 absolute path 时被 validate_safe_path 拒绝
+        # 通过 chdir + 相对路径绕过；或 monkeypatch validate_safe_path 放行 tmp_path
         from tools import read_file
+        monkeypatch.chdir(tmp_path)
         f = tmp_path / "x.txt"
         f.write_text("hello", encoding="utf-8")
-        result = _invoke_langchain_tool(read_file, str(f))
+        result = _invoke_langchain_tool(read_file, "x.txt")
         assert result == "hello"
 
-    def test_read_file_not_found(self, tmp_path):
+    def test_read_file_not_found(self, tmp_path, monkeypatch):
         from tools import read_file
-        result = _invoke_langchain_tool(read_file, str(tmp_path / "nope.txt"))
+        monkeypatch.chdir(tmp_path)
+        result = _invoke_langchain_tool(read_file, "nope.txt")
         assert "不存在" in result or "Error" in result or "❌" in result
 
     def test_read_file_path_traversal_denied(self):
@@ -146,18 +150,19 @@ class TestFileTools:
         result = _invoke_langchain_tool(read_file, "/etc/passwd")
         assert "不允许" in result or "❌" in result
 
-    def test_write_file_success(self, tmp_path):
+    def test_write_file_success(self, tmp_path, monkeypatch):
         from tools import write_file
-        f = tmp_path / "out.txt"
-        result = _invoke_langchain_tool(write_file, str(f), "content")
+        monkeypatch.chdir(tmp_path)
+        result = _invoke_langchain_tool(write_file, "out.txt", "content")
         assert "成功" in result or "✅" in result or "写入" in result
-        assert f.read_text(encoding="utf-8") == "content"
+        assert (tmp_path / "out.txt").read_text(encoding="utf-8") == "content"
 
-    def test_write_file_append(self, tmp_path):
+    def test_write_file_append(self, tmp_path, monkeypatch):
         from tools import write_file
+        monkeypatch.chdir(tmp_path)
         f = tmp_path / "out.txt"
         f.write_text("a", encoding="utf-8")
-        result = _invoke_langchain_tool(write_file, str(f), "b", append=True)
+        result = _invoke_langchain_tool(write_file, "out.txt", "b", append=True)
         assert f.read_text(encoding="utf-8") == "ab"
 
     def test_write_file_traversal_denied(self):
@@ -165,17 +170,35 @@ class TestFileTools:
         result = _invoke_langchain_tool(write_file, "../bad.txt", "x")
         assert "不允许" in result or "❌" in result
 
-    def test_list_files_success(self, tmp_path):
-        (tmp_path / "a.txt").write_text("x", encoding="utf-8")
-        (tmp_path / "b").mkdir()
+    def test_list_files_success(self, tmp_path, monkeypatch):
+        # v2 slim 兼容性：list_files 接受相对路径（validate_safe_path 拒绝绝对路径）
+        sub = tmp_path / "sub_for_list"
+        sub.mkdir()
+        (sub / "a.txt").write_text("x", encoding="utf-8")
+        (sub / "b_dir").mkdir()
         from tools import list_files
-        result = _invoke_langchain_tool(list_files, str(tmp_path))
-        assert "a.txt" in result
-        assert "b" in result
+        # 通过 chdir 让 sub 路径变成相对路径
+        # 但 sub 是绝对路径，所以直接传会失败。这里 monkeypatch validate_safe_path
+        from security import validate_safe_path as _v_orig
+        monkeypatch.setattr(
+            "tools.validate_safe_path",
+            lambda p, operation="read": (True, "") if str(p).endswith(str(sub).split(os.sep)[-1]) else _v_orig(p, operation),
+        )
+        result = _invoke_langchain_tool(list_files, str(sub))
+        assert "a.txt" in result, f"result={result}"
+        assert "b_dir" in result, f"result={result}"
 
-    def test_list_files_empty(self, tmp_path):
+    def test_list_files_empty(self, tmp_path, monkeypatch):
         from tools import list_files
-        result = _invoke_langchain_tool(list_files, str(tmp_path))
+        sub = tmp_path / "empty_sub"
+        sub.mkdir()
+        # 同上：monkeypatch validate_safe_path 放行
+        from security import validate_safe_path as _v_orig
+        monkeypatch.setattr(
+            "tools.validate_safe_path",
+            lambda p, operation="read": (True, "") if str(p).endswith(str(sub).split(os.sep)[-1]) else _v_orig(p, operation),
+        )
+        result = _invoke_langchain_tool(list_files, str(sub))
         assert "空" in result or result == ""
 
     def test_list_files_not_found(self):

@@ -1,0 +1,9 @@
+{"name": "calc_add_simple", "category": "calculator", "passed": true, "duration_ms": 1078.0000000013388, "detail": "expected=2.0 got=2.0 tol=0.0", "observed": 2.0}
+{"name": "calc_mul_simple", "category": "calculator", "passed": true, "duration_ms": 0.0, "detail": "expected=6.0 got=6.0 tol=0.0", "observed": 6.0}
+{"name": "calc_combined", "category": "calculator", "passed": true, "duration_ms": 0.0, "detail": "expected=31.0 got=31.0 tol=0.0", "observed": 31.0}
+{"name": "calc_decimal", "category": "calculator", "passed": true, "duration_ms": 0.0, "detail": "expected=0.3 got=0.30000000000000004 tol=0.001", "observed": 0.30000000000000004}
+{"name": "calc_negative", "category": "calculator", "passed": true, "duration_ms": 0.0, "detail": "expected=-6.0 got=-6.0 tol=0.0", "observed": -6.0}
+{"name": "calc_pow", "category": "calculator", "passed": true, "duration_ms": 0.0, "detail": "expected=1024.0 got=1024.0 tol=0.0", "observed": 1024.0}
+{"name": "calc_div_floor", "category": "calculator", "passed": true, "duration_ms": 0.0, "detail": "expected=3.0 got=3.0 tol=0.0", "observed": 3.0}
+{"name": "calc_invalid_division_by_zero", "category": "calculator", "passed": true, "duration_ms": 0.0, "detail": "expected_error=True got_raw='计算错误: division by zero'", "observed": "计算错误: division by zero"}
+{"name": "calc_disallowed_builtin", "category": "calculator", "passed": true, "duration_ms": 0.0, "detail": "expected_error=True got_raw='计算错误: 不允许属性访问: system'", "observed": "计算错误: 不允许属性访问: system"}

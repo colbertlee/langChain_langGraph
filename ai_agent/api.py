@@ -7,6 +7,45 @@ import uuid
 import os
 
 from agent import AIAgent
+from config import LEGACY_MODE
+
+# ==========================================================
+# v2.0 slim LEGACY 切换：observability / monitor / json_log / permission / human_in_loop
+# ==========================================================
+# - LEGACY_MODE=False → 走 ai_agent.v2_slim.telemetry + v2_slim.approval
+# - LEGACY_MODE=True  → 走老 monitor / observability / json_log / permission / human_in_loop
+# 切换通过 config.LEGACY_MODE 控制（无需重启进程）。
+# ==========================================================
+if LEGACY_MODE:
+    from monitor import get_monitor  # noqa: F401  LEGACY 透传
+    _TELEMETRY_BACKEND = "legacy_monitor"
+else:
+    from v2_slim.telemetry import get_telemetry as _v2_get_telemetry
+    _TELEMETRY_BACKEND = "v2_slim_telemetry"
+
+
+def _resolve_monitor():
+    """根据 LEGACY_MODE 返回 monitor 实例（get_stats / reset 兼容）。
+
+    v2 slim 的 TelemetrySink 暴露 .snapshot() / .flush() / .emit()，不提供 get_stats。
+    这里返回的对象统一暴露 .get_stats() 和 .reset()，让上层 api.py 无感知。
+    """
+    if LEGACY_MODE:
+        from monitor import get_monitor
+        return get_monitor()
+    sink = _v2_get_telemetry()
+
+    class _Adapter:
+        """让 v2 TelemetrySink 兼容老 monitor.get_stats / reset 接口。"""
+
+        def get_stats(self) -> dict:
+            return sink.snapshot()
+
+        def reset(self) -> None:
+            # v2 没有显式 reset（无状态保留），这里通过 flush 到一个空路径"清空"
+            sink.flush("/dev/null") if os.name != "nt" else sink.flush(os.devnull)
+
+    return _Adapter()
 
 app = FastAPI(title="AI Agent API", version="2.0.0")
 

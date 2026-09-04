@@ -1,0 +1,52 @@
+# .github/workflows/pr-merge-label.yml
+# Auto-label merged release PRs.
+#
+# Trigger: pull_request.closed with merged == true.
+# What it does: calls release_cli.py webhook to:
+#   1. Ensure a 'release' label exists (color #0E8A16)
+#   2. Apply the label to the merged PR
+#   3. Post a confirmation comment
+#
+# Only fires for PRs whose title starts with "Release" or has the 'release'
+# label already, to avoid polluting unrelated PRs.
+#
+# Ref: docs/VERSION_MANAGEMENT.md section 7.6.4 (PR checklist tracking).
+
+name: PR merge label
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  label-merged:
+    name: Label merged release PRs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: github.event.pull_request.merged == true && (startsWith(github.event.pull_request.title, 'Release') || contains(github.event.pull_request.title, 'release'))
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Apply 'release' label via release_cli webhook
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          python scripts/release/release_cli.py webhook \
+            --pr-number "$PR_NUMBER" \
+            --repo "$REPO" \
+            --action merged \
+            --label release \
+            --comment "Merged at ${{ github.event.pull_request.merged_at }} via workflow run [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."

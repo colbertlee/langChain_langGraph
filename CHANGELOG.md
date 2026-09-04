@@ -4,6 +4,56 @@
 
 ---
 
+## [v2.0.9] - 2026-09-04
+
+**类型**: Capability · **SemVer**: PATCH
+**Release Notes**: [release_notes/v2.0.9.md](release_notes/v2.0.9.md)
+**SOP**: [docs/VERSION_MANAGEMENT.md](docs/VERSION_MANAGEMENT.md)
+
+### Added
+
+- `ai_agent/v2_slim/` — slim runtime namespace merging 5 modules into 3 (`tools_v2.py` 6 composite `@tool` with `subcommand: Literal[...]`, `memory_store_v2.py` dual `ShortTermContext` + `LongTermKnowledge`, `multi_agent_v2.py` keeps only `SEQUENTIAL` + `SUPERVISOR`, `approval.py` unified `ApprovalGate` + RBAC `Policy`, `telemetry.py` single `TelemetrySink` facade). Opt-in via `AIAgent_LEGACY=true` fallback; default is slim.
+- `ai_agent/harness.py` + `harness_runner.py` + `harness_storage.py` + `harness_cli.py` + `harness_observability.py` — Agent runtime facade with dependency injection, configurable planner/memory/observability/security/sandbox flags, and `Trace` dataclass replay.
+- `ai_agent/scripts/migrate_memory_v1_to_v2.py` — collapse EPISODIC/PROCEDURAL records into ShortTerm/LongTerm layout.
+- `ai_agent/scripts/staging_monitor_loop.py` — 24h staging probe loop driven by `test_staging_monitor.py`.
+- `ai_agent/docs/HARNESS.md`, `STAGING_DEPLOY_CHECKLIST.md`, `STAGING_MONITORING.md` — Harness reference + staging gate runbooks.
+- `ai_agent/evals/` — eval harness infra: `evals/sets/smoke_v1.jsonl` + `evals/runs/<ts>/{cases.jsonl,summary.json,metrics.json,report.md}` for every `harness_dry_*`, `harness_pr*_local`, `harness_smoke_*` run.
+- `.github/workflows/release.yml` — tag-driven release pipeline (`v[0-9]+.[0-9]+.[0-9]+*`) wrapping `release_cli.py github`/`gitee` with sdist + wheel + source tarball. Closes A-3 from INCIDENT_REPORT_v2.0.7.
+- `.github/workflows/pr-merge-label.yml` — applies `release` label + posts a comment on merged release PRs via `release_cli.py webhook`. Closes A-4 from INCIDENT_REPORT_v2.0.7.
+- 11 new test modules (`test_harness*.py`, `test_staging_monitor.py`, `test_v2_slim_*.py`) — 613 passed in 89.14s on the slim profile.
+
+### Changed
+
+- `ai_agent/agent.py` — `init_agent()` honors runtime `LEGACY_MODE` toggle without restart.
+- `ai_agent/app.py` — `/api/models` now respects `LEGACY_MODE` (single config knob).
+- `ai_agent/api.py` — `/api/health` returns the runtime flavor (`v2_slim` vs `legacy`) for staging probes.
+- `ai_agent/config.py` — adds `LEGACY_MODE` and `V2_SLIM_PACKAGE` env knobs.
+- `ai_agent/web_ui.py` — entry point honors `LEGACY_MODE` for the web console launcher.
+- `web_console/src/App.tsx` — reads runtime flavor from `/api/health` to surface in the UI footer.
+- `ai_agent/pyproject.toml` — version `2.0.8` → `2.0.9`; registers `harness_runner / harness_storage / harness_cli` as `py-modules`.
+
+### Migration
+
+No breaking change. `v2_slim` is additive; existing imports continue to work. New code can opt into slim by leaving `AIAgent_LEGACY=false` (default) and importing from `ai_agent.v2_slim`. To fold legacy memory records:
+
+```bash
+python ai_agent/scripts/migrate_memory_v1_to_v2.py --src ai_agent/memory.db
+```
+
+To consume:
+
+```bash
+git fetch origin && git checkout master && git pull
+```
+
+### Known Caveats
+
+- `.github/workflows/*.yml` are committed but not yet auto-active: requires PAT `workflow` scope (still TODO A-7). Until then, releases continue via `release_cli.py`.
+- `tests/legacy/` (~280 cases) is skipped by default under the slim profile.
+- `frozen("name")()` raises `NotImplementedError` immediately (PEP 318 semantics); this is intentional and tested by `test_v2_slim_fault_tolerance.py`.
+
+---
+
 ## [v2.0.8] - 2026-09-04
 
 **类型**: Tooling / Process · **SemVer**: PATCH

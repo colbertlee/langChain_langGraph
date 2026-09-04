@@ -222,3 +222,11 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 # Embedding 模型配置
 EMBEDDING_API_KEY = os.getenv("EMBEDDING_API_KEY", "")
 EMBEDDING_MODEL_TYPE = os.getenv("EMBEDDING_MODEL_TYPE", "openai")  # openai/minimax/zhipu/jina
+
+# ============ v2.0 slim 开关 ============
+# LEGACY_MODE=True  → 走老实现（tools_legacy / multi_agent_legacy / permission+human_in_loop ...）
+# LEGACY_MODE=False → 走 v2 slim（6 个复合工具 / 双记忆 / Sequential+Supervisor / approval+telemetry 合并）
+LEGACY_MODE = os.getenv("AIAgent_LEGACY", "false").lower() == "true"
+
+# v2 slim 命名空间路径（避免循环引用）
+V2_SLIM_PACKAGE = "ai_agent.v2_slim"

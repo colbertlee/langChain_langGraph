@@ -1,0 +1,32 @@
+{
+  "started_at": "2026-07-31T08:29:25",
+  "finished_at": "2026-07-31T08:29:25",
+  "cases_total": 2,
+  "cases_passed": 2,
+  "cases_failed": 0,
+  "cases_errored": 0,
+  "cases": [
+    {
+      "name": "e2e_echo",
+      "category": "agent_end_to_end",
+      "passed": true,
+      "duration_ms": 20.0,
+      "detail": "ok",
+      "observed": {
+        "final": "echo: hi",
+        "elapsed_ms": 20.0
+      }
+    },
+    {
+      "name": "e2e_calc",
+      "category": "agent_end_to_end",
+      "passed": true,
+      "duration_ms": 20.0,
+      "detail": "ok",
+      "observed": {
+        "final": "echo: 1+2",
+        "elapsed_ms": 20.0
+      }
+    }
+  ]
+}

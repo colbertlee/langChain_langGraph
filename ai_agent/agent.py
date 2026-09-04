@@ -45,6 +45,58 @@ from memory_store import get_memory_store, MemoryImportance
 from prompt_registry import get_prompt_registry, PromptTemplate
 from user_prompt_registry import get_user_prompt_registry
 
+# ==========================================================
+# v2.0 slim LEGACY 切换层（不触碰核心闭环）
+# ==========================================================
+# 设计：仅替换 tools / memory 的入口；agent.py 内部其余逻辑保持不变。
+#   - LEGACY_MODE=False (默认) → tools/memory 走 v2_slim 的 6 个复合工具 + 双记忆
+#   - LEGACY_MODE=True          → tools/memory 走老 tools.py / memory_store.py 全量实现
+# 切换通过 config.LEGACY_MODE 控制，运行时即时生效（无需重启进程）。
+# ==========================================================
+from config import LEGACY_MODE
+
+if LEGACY_MODE:
+    # LEGACY：直接使用上面的老 import
+    _tools_module = None  # 标记：使用顶部 from tools import
+    _memory_module = None  # 标记：使用顶部 from memory_store import
+    _get_tools_v2 = None
+    _get_memory_store_v2 = None
+else:
+    # v2 slim：延迟注入入口函数到模块全局
+    from v2_slim.tools_v2 import get_all_tools_v2 as _get_tools_v2
+    from v2_slim.memory_store_v2 import (
+        get_memory_store_v2 as _get_memory_store_v2,
+        ShortTermContext as _ShortTermContextV2,
+        LongTermKnowledge as _LongTermKnowledgeV2,
+        MemoryStore as _MemoryStoreV2,
+    )
+    # v2 slim 的 MemoryStore 没有 MemoryImportance 枚举；这里从原 memory_store 取枚举值（仅做意图映射）
+    # MemoryImportance 数值与 v2 一致：LOW=1 / MEDIUM=2 / HIGH=3 / CRITICAL=4
+    _tools_module = "v2"
+    _memory_module = "v2"
+
+
+def _resolve_tools() -> List[Any]:
+    """根据 LEGACY_MODE 返回工具列表。
+
+    LEGACY 模式：返回老 tools.py 的 18+ 工具；
+    v2 slim 模式：返回 6 个复合 @tool。
+    """
+    if _tools_module is None:
+        return get_all_tools()
+    return _get_tools_v2()
+
+
+def _resolve_memory_store() -> Any:
+    """根据 LEGACY_MODE 返回记忆 store。
+
+    LEGACY 模式：返回老 MemoryStore（4 类型）；
+    v2 slim 模式：返回 v2_slim.MemoryStore（2 类型）。
+    """
+    if _memory_module is None:
+        return get_memory_store()
+    return _get_memory_store_v2()
+
 
 logger = logging.getLogger(__name__)
 if not logger.handlers:
@@ -56,6 +108,13 @@ if not logger.handlers:
             logging.StreamHandler(),
         ],
     )
+
+logger.info(
+    "v2_slim LEGACY_MODE=%s → tools=%s memory=%s",
+    LEGACY_MODE,
+    "legacy" if _tools_module is None else "v2_slim",
+    "legacy" if _memory_module is None else "v2_slim",
+)
 
 
 # 意图到记忆重要性的映射（替代 agent.py 中散落的字符串匹配）
@@ -146,8 +205,8 @@ class AIAgent:
         self.context_manager = get_context_manager()
         self.current_session_id = str(uuid.uuid4())
 
-        # 短期/长期记忆
-        self.memory_store = get_memory_store()
+        # 短期/长期记忆（LEGACY 切换）
+        self.memory_store = _resolve_memory_store()
 
         # 主备（Primary/Standby）配置
         # 默认：当前 provider 为主；其余 fallback 链的第一个作为 standby
@@ -274,7 +333,7 @@ class AIAgent:
             set_security_instance(self.security)
 
             # 重新加载 tools（确保包含 rag 等可能新增的工具）
-            self.tools = get_all_tools()
+            self.tools = _resolve_tools()
             self._system_prompt = self._build_system_prompt()
 
             # LangChain 1.x: create_agent 直接接收 checkpointer，

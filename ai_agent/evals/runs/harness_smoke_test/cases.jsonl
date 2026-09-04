@@ -1,0 +1,2 @@
+{"name": "intent_greet_zh", "category": "intent_routing", "passed": true, "duration_ms": 0.0045000051613897085, "detail": "expected=greeting got=greeting", "observed": "greeting"}
+{"name": "calc_1+2", "category": "calculator", "passed": true, "duration_ms": 1035.9217000077479, "detail": "expected=3.0 got=3.0 tol=0.0", "observed": 3.0}

@@ -1,0 +1,21 @@
+{
+  "started_at": "2026-07-31T08:31:12",
+  "finished_at": "2026-07-31T08:31:12",
+  "cases_total": 1,
+  "cases_passed": 1,
+  "cases_failed": 0,
+  "cases_errored": 0,
+  "cases": [
+    {
+      "name": "e2e_fake",
+      "category": "agent_end_to_end",
+      "passed": true,
+      "duration_ms": 10.0,
+      "detail": "ok",
+      "observed": {
+        "final": "echo: ping",
+        "elapsed_ms": 10.0
+      }
+    }
+  ]
+}

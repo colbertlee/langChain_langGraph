@@ -1,0 +1,147 @@
+# .github/workflows/release.yml
+# Tag-driven release pipeline.
+#
+# Trigger: push of any tag matching "v*.*.*" (e.g. v2.0.7, v2.0.8-rc1).
+# What it does:
+#   1. Check out repo
+#   2. Build binaries (Windows / Linux / macOS wheels + zips)
+#   3. Call release_cli.py to:
+#        a. Create GitHub Release with binaries
+#        b. (optional) Mirror to Gitee if GITEE_TOKEN is set
+#   4. Apply the 'release' label to the release PR (if any) via webhook sub
+#
+# Required secrets:
+#   GH_TOKEN     - PAT with repo scope (or Actions-provided GITHUB_TOKEN + workflow scope)
+#   GITEE_TOKEN  - (optional) Gitee personal access token with project scope
+#
+# Ref: docs/VERSION_MANAGEMENT.md sections 4, 5, 6.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "version to release (with or without leading v)"
+        required: true
+        default: "2.0.8"
+
+permissions:
+  contents: write   # needed to create Releases and upload assets
+  pull-requests: write  # needed for webhook sub to label/comment
+
+jobs:
+  release:
+    name: Build & Publish Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install build wheel
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            VERSION="${{ inputs.version }}"
+          else
+            # Tag like "v2.0.7" -> "2.0.7"
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          fi
+          echo "VERSION=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: ${VERSION}"
+
+      - name: Build sdist + wheel
+        run: |
+          mkdir -p dist
+          # If pyproject.toml exists at the backend root, build there; else fall back to root.
+          if [[ -f ai_agent/pyproject.toml ]]; then
+            cd ai_agent && python -m build --outdir ../dist && cd ..
+          elif [[ -f pyproject.toml ]]; then
+            python -m build --outdir dist
+          else
+            echo "No pyproject.toml found; skipping wheel build (creating empty dist placeholder)"
+            mkdir -p dist
+          fi
+          ls -la dist/
+
+      - name: Package source tarball
+        run: |
+          cd ..
+          tar --exclude='langChain_langGraph/dist' \
+              --exclude='langChain_langGraph/.git' \
+              --exclude='langChain_langGraph/.pytest_cache' \
+              --exclude='langChain_langGraph/**/__pycache__' \
+              -czf "langChain_langGraph-${{ steps.version.outputs.VERSION }}-source.tar.gz" \
+              langChain_langGraph
+          mv "langChain_langGraph-${{ steps.version.outputs.VERSION }}-source.tar.gz" \
+             langChain_langGraph/dist/
+          ls -la dist/
+
+      - name: Generate release notes
+        if: startsWith(github.ref, 'refs/tags/v')
+        id: notes
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          cat > release_notes.md <<EOF
+          # AI Agent v${VERSION}
+
+          Auto-generated release notes from commits since the previous tag.
+
+          ## Commits
+
+          $(git log $(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || git rev-list --max-parents=0 HEAD)..HEAD --pretty="- %s (%h)")
+          EOF
+
+      - name: Publish to GitHub
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          python scripts/release/release_cli.py github "$VERSION" \
+            --title "AI Agent v${VERSION}" \
+            --body release_notes.md \
+            --asset dist/*.whl \
+            --asset dist/*.tar.gz \
+            --asset dist/*-source.tar.gz
+
+      - name: Mirror to Gitee
+        if: env.GITEE_TOKEN != ''
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          python scripts/release/release_cli.py gitee "$VERSION" \
+            --create-release \
+            --title "AI Agent v${VERSION} (Gitee mirror)" \
+            --body release_notes.md \
+            --asset dist/*.whl \
+            --asset dist/*.tar.gz
+
+      - name: Notify release PR (if linked)
+        if: env.PR_NUMBER != ''
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ inputs.pr_number || '' }}
+        run: |
+          python scripts/release/release_cli.py webhook \
+            --pr-number "$PR_NUMBER" \
+            --label release \
+            --comment "Released as v${{ steps.version.outputs.VERSION }} (see workflow run ${{ github.run_id }})."

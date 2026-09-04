@@ -292,11 +292,11 @@ into thinking the cleanup hadn't happened.
 |---|---|---|---|---|
 | A-1 | Ship release_cli.py + branch protection + PR template | colbertlee | ✅ Done | PR #2 |
 | A-2 | Document single-owner protection payload | colbertlee | ✅ Done | PR #3 |
-| A-3 | Add tag-driven release workflow | colbertlee | ✅ Done | this PR |
-| A-4 | Add PR-merge-label workflow | colbertlee | ✅ Done | this PR |
-| A-5 | Pre-flight cleanup-check script (`scripts/release/preflight_cleanup.py`) | colbertlee | ⏳ TODO | v2.0.8 |
-| A-6 | Add CODEOWNERS file requiring release owner approval on `VERSION_MANAGEMENT.md` | colbertlee | ⏳ TODO | v2.0.8 |
-| A-7 | Add CI status checks to master branch protection | colbertlee | ⏳ TODO | when CI exists |
+| A-3 | Add tag-driven release workflow | colbertlee | ✅ Done | v2.0.9 (committed in master; auto-runs after PAT `workflow` scope is granted) |
+| A-4 | Add PR-merge-label workflow | colbertlee | ✅ Done | v2.0.9 (same caveat as A-3) |
+| A-5 | Pre-flight cleanup-check script (`scripts/release/preflight_cleanup.py`) | colbertlee | ⏳ TODO | v2.0.10 |
+| A-6 | Add CODEOWNERS file requiring release owner approval on `VERSION_MANAGEMENT.md` | colbertlee | ⏳ TODO | v2.0.10 |
+| A-7 | Add CI status checks to master branch protection | colbertlee | ⏳ TODO | when A-3/A-4 CI is enabled (PAT `workflow` scope) |
 
 ---
 

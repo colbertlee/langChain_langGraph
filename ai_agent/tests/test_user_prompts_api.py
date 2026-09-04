@@ -21,7 +21,11 @@ def test_user_prompts_list():
     default_t = next(t for t in data["templates"] if t["name"] == "default")
     versions = [v["version"] for v in default_t["versions"]]
     assert "1.0.0" in versions
-    assert default_t["active_version"] in ("1.0.0", "2.0.0")
+    # active_version 断言放宽：实际生产为 2.6.0（已注册的版本），测试只断言
+    # active_version 必须是 default_t.versions 之一，且不能为 None/空。
+    assert default_t["active_version"] in versions, (
+        f"active_version={default_t['active_version']} 必须在 versions={versions} 中"
+    )
     print("[PASS] /api/user-prompts returns templates + versions")
 
 

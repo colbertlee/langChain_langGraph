@@ -1,0 +1,202 @@
+{
+  "started_at": "2026-07-26T09:02:33",
+  "finished_at": "2026-07-26T09:02:33",
+  "cases_total": 24,
+  "cases_passed": 0,
+  "cases_failed": 24,
+  "cases_errored": 0,
+  "cases": [
+    {
+      "name": "calc_add_simple",
+      "category": "calculator",
+      "passed": false,
+      "duration_ms": 0.0,
+      "detail": "no runner registered for category='calculator'",
+      "observed": null
+    },
+    {
+      "name": "calc_mul_simple",
+      "category": "calculator",
+      "passed": false,
+      "duration_ms": 0.0,
+      "detail": "no runner registered for category='calculator'",
+      "observed": null
+    },
+    {
+      "name": "calc_combined",
+      "category": "calculator",
+      "passed": false,
+      "duration_ms": 0.0,
+      "detail": "no runner registered for category='calculator'",
+      "observed": null
+    },
+    {
+      "name": "calc_decimal",
+      "category": "calculator",
+      "passed": false,
+      "duration_ms": 0.0,
+      "detail": "no runner registered for category='calculator'",
+      "observed": null
+    },
+    {
+      "name": "calc_negative",
+      "category": "calculator",
+      "passed": false,
+      "duration_ms": 0.0,
+      "detail": "no runner registered for category='calculator'",
+      "observed": null
+    },
+    {
+      "name": "calc_pow",
+      "category": "calculator",
+      "passed": false,
+      "duration_ms": 0.0,
+      "detail": "no runner registered for category='calculator'",
+      "observed": null
+    },
+    {
+      "name": "calc_div_floor",
+      "category": "calculator",
+      "passed": false,
+      "duration_ms": 0.0,
+      "detail": "no runner registered for category='calculator'",
+      "observed": null
+    },
+    {
+      "name": "calc_invalid_division_by_zero",
+      "category": "calculator",
+      "passed": false,
+      "duration_ms": 0.0,
+      "detail": "no runner registered for category='calculator'",
+      "observed": null
+    },
+    {
+      "name": "calc_disallowed_builtin",
+      "category": "calculator",
+      "passed": false,
+      "duration_ms": 0.0,
+      "detail": "no runner registered for category='calculator'",
+      "observed": null
+    },
+    {
+      "name": "intent_greet_zh",
+      "category": "intent_routing",
+      "passed": false,
+      "duration_ms": 0.0,
+      "detail": "no runner registered for category='intent_routing'",
+      "observed": null
+    },
+    {
+      "name": "intent_query_zh",
+      "category": "intent_routing",
+      "passed": false,
+      "duration_ms": 0.0,
+      "detail": "no runner registered for category='intent_routing'",
+      "observed": null
+    },
+    {
+      "name": "intent_calc_zh",
+      "category": "intent_routing",
+      "passed": false,
+      "duration_ms": 0.0,
+      "detail": "no runner registered for category='intent_routing'",
+      "observed": null
+    },
+    {
+      "name": "intent_analysis_zh",
+      "category": "intent_routing",
+      "passed": false,
+      "duration_ms": 0.0,
+      "detail": "no runner registered for category='intent_routing'",
+      "observed": null
+    },
+    {
+      "name": "intent_command_zh",
+      "category": "intent_routing",
+      "passed": false,
+      "duration_ms": 0.0,
+      "detail": "no runner registered for category='intent_routing'",
+      "observed": null
+    },
+    {
+      "name": "intent_query_en",
+      "category": "intent_routing",
+      "passed": false,
+      "duration_ms": 0.0,
+      "detail": "no runner registered for category='intent_routing'",
+      "observed": null
+    },
+    {
+      "name": "intent_compare_en",
+      "category": "intent_routing",
+      "passed": false,
+      "duration_ms": 0.0,
+      "detail": "no runner registered for category='intent_routing'",
+      "observed": null
+    },
+    {
+      "name": "intent_general_fallback",
+      "category": "intent_routing",
+      "passed": false,
+      "duration_ms": 0.0,
+      "detail": "no runner registered for category='intent_routing'",
+      "observed": null
+    },
+    {
+      "name": "safety_prompt_inject_en",
+      "category": "safety",
+      "passed": false,
+      "duration_ms": 0.0,
+      "detail": "no runner registered for category='safety'",
+      "observed": null
+    },
+    {
+      "name": "safety_prompt_inject_zh",
+      "category": "safety",
+      "passed": false,
+      "duration_ms": 0.0,
+      "detail": "no runner registered for category='safety'",
+      "observed": null
+    },
+    {
+      "name": "safety_jailbreak_keyword",
+      "category": "safety",
+      "passed": false,
+      "duration_ms": 0.0,
+      "detail": "no runner registered for category='safety'",
+      "observed": null
+    },
+    {
+      "name": "safety_special_token",
+      "category": "safety",
+      "passed": false,
+      "duration_ms": 0.0,
+      "detail": "no runner registered for category='safety'",
+      "observed": null
+    },
+    {
+      "name": "safety_safe_text",
+      "category": "safety",
+      "passed": false,
+      "duration_ms": 0.0,
+      "detail": "no runner registered for category='safety'",
+      "observed": null
+    },
+    {
+      "name": "safety_safe_text_en",
+      "category": "safety",
+      "passed": false,
+      "duration_ms": 0.0,
+      "detail": "no runner registered for category='safety'",
+      "observed": null
+    },
+    {
+      "name": "safety_normal_context_with_keyword",
+      "category": "safety",
+      "passed": false,
+      "duration_ms": 0.0,
+      "detail": "no runner registered for category='safety'",
+      "observed": null
+    }
+  ]
+}

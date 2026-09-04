@@ -1,0 +1,202 @@
+{
+  "started_at": "2026-07-26T09:07:58",
+  "finished_at": "2026-07-26T09:07:59",
+  "cases_total": 24,
+  "cases_passed": 24,
+  "cases_failed": 0,
+  "cases_errored": 0,
+  "cases": [
+    {
+      "name": "calc_add_simple",
+      "category": "calculator",
+      "passed": true,
+      "duration_ms": 1388.684800000192,
+      "detail": "expected=2.0 got=2.0 tol=0.0",
+      "observed": 2.0
+    },
+    {
+      "name": "calc_mul_simple",
+      "category": "calculator",
+      "passed": true,
+      "duration_ms": 0.4693000000770553,
+      "detail": "expected=6.0 got=6.0 tol=0.0",
+      "observed": 6.0
+    },
+    {
+      "name": "calc_combined",
+      "category": "calculator",
+      "passed": true,
+      "duration_ms": 0.5492000000231201,
+      "detail": "expected=31.0 got=31.0 tol=0.0",
+      "observed": 31.0
+    },
+    {
+      "name": "calc_decimal",
+      "category": "calculator",
+      "passed": true,
+      "duration_ms": 0.4813000000467582,
+      "detail": "expected=0.3 got=0.30000000000000004 tol=0.001",
+      "observed": 0.30000000000000004
+    },
+    {
+      "name": "calc_negative",
+      "category": "calculator",
+      "passed": true,
+      "duration_ms": 0.6898000001456239,
+      "detail": "expected=-6.0 got=-6.0 tol=0.0",
+      "observed": -6.0
+    },
+    {
+      "name": "calc_pow",
+      "category": "calculator",
+      "passed": true,
+      "duration_ms": 0.4192999999759195,
+      "detail": "expected=1024.0 got=1024.0 tol=0.0",
+      "observed": 1024.0
+    },
+    {
+      "name": "calc_div_floor",
+      "category": "calculator",
+      "passed": true,
+      "duration_ms": 0.33750000011423253,
+      "detail": "expected=3.0 got=3.0 tol=0.0",
+      "observed": 3.0
+    },
+    {
+      "name": "calc_invalid_division_by_zero",
+      "category": "calculator",
+      "passed": true,
+      "duration_ms": 0.3087000000050466,
+      "detail": "expected_error=True got_raw='计算错误: division by zero'",
+      "observed": "计算错误: division by zero"
+    },
+    {
+      "name": "calc_disallowed_builtin",
+      "category": "calculator",
+      "passed": true,
+      "duration_ms": 0.342100000125356,
+      "detail": "expected_error=True got_raw='计算错误: 不允许属性访问: system'",
+      "observed": "计算错误: 不允许属性访问: system"
+    },
+    {
+      "name": "intent_greet_zh",
+      "category": "intent_routing",
+      "passed": true,
+      "duration_ms": 0.009399999726156238,
+      "detail": "expected=greeting got=greeting",
+      "observed": "greeting"
+    },
+    {
+      "name": "intent_query_zh",
+      "category": "intent_routing",
+      "passed": true,
+      "duration_ms": 0.01900000006571645,
+      "detail": "expected=query got=query",
+      "observed": "query"
+    },
+    {
+      "name": "intent_calc_zh",
+      "category": "intent_routing",
+      "passed": true,
+      "duration_ms": 0.00850000014906982,
+      "detail": "expected=calculate got=calculate",
+      "observed": "calculate"
+    },
+    {
+      "name": "intent_analysis_zh",
+      "category": "intent_routing",
+      "passed": true,
+      "duration_ms": 0.0064000000747910235,
+      "detail": "expected=analysis got=analysis",
+      "observed": "analysis"
+    },
+    {
+      "name": "intent_command_zh",
+      "category": "intent_routing",
+      "passed": true,
+      "duration_ms": 0.004300000000512227,
+      "detail": "expected=command got=command",
+      "observed": "command"
+    },
+    {
+      "name": "intent_query_en",
+      "category": "intent_routing",
+      "passed": true,
+      "duration_ms": 0.004600000011123484,
+      "detail": "expected=query got=query",
+      "observed": "query"
+    },
+    {
+      "name": "intent_compare_en",
+      "category": "intent_routing",
+      "passed": true,
+      "duration_ms": 0.002100000074278796,
+      "detail": "expected=compare got=compare",
+      "observed": "compare"
+    },
+    {
+      "name": "intent_general_fallback",
+      "category": "intent_routing",
+      "passed": true,
+      "duration_ms": 0.004199999693810241,
+      "detail": "expected=general got=general",
+      "observed": "general"
+    },
+    {
+      "name": "safety_prompt_inject_en",
+      "category": "safety",
+      "passed": true,
+      "duration_ms": 0.013700000181415817,
+      "detail": "expect_blocked=True got=True",
+      "observed": "blocked"
+    },
+    {
+      "name": "safety_prompt_inject_zh",
+      "category": "safety",
+      "passed": true,
+      "duration_ms": 0.008900000011635711,
+      "detail": "expect_blocked=True got=True",
+      "observed": "blocked"
+    },
+    {
+      "name": "safety_jailbreak_keyword",
+      "category": "safety",
+      "passed": true,
+      "duration_ms": 0.005299999884300632,
+      "detail": "expect_blocked=True got=True",
+      "observed": "blocked"
+    },
+    {
+      "name": "safety_special_token",
+      "category": "safety",
+      "passed": true,
+      "duration_ms": 0.004800000169780105,
+      "detail": "expect_blocked=True got=True",
+      "observed": "blocked"
+    },
+    {
+      "name": "safety_safe_text",
+      "category": "safety",
+      "passed": true,
+      "duration_ms": 0.010599999768601265,
+      "detail": "expect_blocked=False got=False",
+      "observed": "safe"
+    },
+    {
+      "name": "safety_safe_text_en",
+      "category": "safety",
+      "passed": true,
+      "duration_ms": 0.004800000169780105,
+      "detail": "expect_blocked=False got=False",
+      "observed": "safe"
+    },
+    {
+      "name": "safety_normal_context_with_keyword",
+      "category": "safety",
+      "passed": true,
+      "duration_ms": 0.002499999936844688,
+      "detail": "expect_blocked=False got=False",
+      "observed": "safe"
+    }
+  ]
+}

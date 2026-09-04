@@ -1,0 +1,74 @@
+{
+  "started_at": "2026-09-03T16:55:20",
+  "finished_at": "2026-09-03T16:55:20",
+  "cases_total": 8,
+  "cases_passed": 8,
+  "cases_failed": 0,
+  "cases_errored": 0,
+  "cases": [
+    {
+      "name": "intent_greet_zh",
+      "category": "intent_routing",
+      "passed": true,
+      "duration_ms": 0.0,
+      "detail": "expected=greeting got=greeting",
+      "observed": "greeting"
+    },
+    {
+      "name": "intent_query_zh",
+      "category": "intent_routing",
+      "passed": true,
+      "duration_ms": 0.0,
+      "detail": "expected=query got=query",
+      "observed": "query"
+    },
+    {
+      "name": "intent_calc_zh",
+      "category": "intent_routing",
+      "passed": true,
+      "duration_ms": 0.0,
+      "detail": "expected=calculate got=calculate",
+      "observed": "calculate"
+    },
+    {
+      "name": "intent_analysis_zh",
+      "category": "intent_routing",
+      "passed": true,
+      "duration_ms": 0.0,
+      "detail": "expected=analysis got=analysis",
+      "observed": "analysis"
+    },
+    {
+      "name": "intent_command_zh",
+      "category": "intent_routing",
+      "passed": true,
+      "duration_ms": 0.0,
+      "detail": "expected=command got=command",
+      "observed": "command"
+    },
+    {
+      "name": "intent_query_en",
+      "category": "intent_routing",
+      "passed": true,
+      "duration_ms": 0.0,
+      "detail": "expected=query got=query",
+      "observed": "query"
+    },
+    {
+      "name": "intent_compare_en",
+      "category": "intent_routing",
+      "passed": true,
+      "duration_ms": 0.0,
+      "detail": "expected=compare got=compare",
+      "observed": "compare"
+    },
+    {
+      "name": "intent_general_fallback",
+      "category": "intent_routing",
+      "passed": true,
+      "duration_ms": 0.0,
+      "detail": "expected=general got=general",
+      "observed": "general"
+    }
+  ]
+}

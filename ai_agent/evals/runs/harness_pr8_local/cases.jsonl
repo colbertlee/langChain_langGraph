@@ -1,0 +1,1 @@
+{"name": "e2e_fake", "category": "agent_end_to_end", "passed": true, "duration_ms": 10.0, "detail": "ok", "observed": {"final": "echo: ping", "elapsed_ms": 10.0}}
