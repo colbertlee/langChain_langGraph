@@ -74,7 +74,7 @@ git fetch origin && git checkout master && git pull
 - React 控制台(端口 5173 / 8000)正式成为推荐入口
 
 **桌面二进制**:
-- v1.x 桌面包无法热更新到 v2.0(因为 `_internal/` 体积与依赖变化),需卸载后重新下载
+- v1.x 桌面版无法热更新到 v2.0(因为 `_internal/` 体积与依赖变化),需卸载后重新下载
 - 卸载步骤见 [DISTRIBUTION.md §10](file:///e:/langChain_langGraph/DISTRIBUTION.md)
 
 **破坏性变更**:
