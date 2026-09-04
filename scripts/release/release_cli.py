@@ -226,24 +226,274 @@ def _tag_exists(tag: str) -> bool:
 # Subcommand: gitee
 # ============================================================
 def cmd_gitee(args) -> int:
-    """Push tag + mirror to Gitee."""
+    """Mirror master + tags to Gitee, optionally create a Gitee Release."""
     log.info("=" * 70)
     log.info("  MIRROR TO GITEE")
     log.info("=" * 70)
     version = _normalize_version(args.version)
-    log.info("  Version: %s", version)
-    log.info("  Repo:    %s", GITEE_REPO)
+    log.info("  Version:  %s", version)
+    log.info("  Repo:     %s", GITEE_REPO)
+    log.info("  Create Release: %s", bool(args.create_release and os.environ.get("GITEE_TOKEN")))
 
+    # Step 1: push master + tags
     if not args.skip_push:
+        log.info("  [1/3] Pushing master to gitee ...")
         _run(["git", "push", "gitee", "master"], check=True)
         for t in [f"v{version}", f"v{version}-cleanup-verified"]:
             if _tag_exists(t):
+                log.info("  [2/3] Pushing tag %s to gitee ...", t)
                 _run(["git", "push", "gitee", t], check=True)
             else:
-                log.info("  Skip: tag %s does not exist locally", t)
+                log.info("  [2/3] Skip: tag %s does not exist locally", t)
+    else:
+        log.info("  [skip] Tag push skipped (--skip-push)")
+
+    # Step 2: optionally create Gitee Release (only if both --create-release and GITEE_TOKEN set)
+    if args.create_release:
+        token = os.environ.get("GITEE_TOKEN")
+        if not token:
+            log.error("  --create-release requires GITEE_TOKEN env var; skipping")
+            return 1
+        log.info("  [3/3] Creating Gitee Release ...")
+        _create_gitee_release(version, token, args)
+    else:
+        log.info("  [3/3] Skip Release creation (pass --create-release to enable)")
+        log.info("  Note: per VERSION_MANAGEMENT.md section 6, GitHub is the source of truth;")
+        log.info("        Gitee Releases are optional and only for users stuck behind GFW.")
+
     log.info("  [OK] Gitee mirror synced")
-    log.info("  Note: do NOT create Release on Gitee; GitHub is the source of truth")
     return 0
+
+
+def _create_gitee_release(version: str, token: str, args) -> None:
+    """Create a Gitee Release via Gitee OpenAPI v5.
+
+    Gitee API: POST https://gitee.com/api/v5/repos/{owner}/{repo}/releases
+    Required scope: project (token must be personal access token with project scope).
+    """
+    tag_name = f"v{version}"
+    target = args.target or "master"
+    notes = ""
+    if args.body and Path(args.body).is_file():
+        notes = Path(args.body).read_text(encoding="utf-8")
+    elif getattr(args, "body_text", None):
+        notes = args.body_text
+
+    payload = {
+        "tag_name": tag_name,
+        "target_commitish": target,
+        "name": getattr(args, "title", None) or f"AI Agent v{version}",
+        "body": notes,
+        "prerelease": bool(getattr(args, "prerelease", False)),
+        "draft": False,
+    }
+
+    req = urllib.request.Request(
+        f"https://gitee.com/api/v5/repos/{GITEE_REPO}/releases",
+        data=json.dumps(payload).encode("utf-8"),
+        method="POST",
+        headers={
+            "Authorization": f"token {token}",
+            "Content-Type": "application/json;charset=UTF-8",
+            "User-Agent": "release_cli.py",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            release = json.loads(r.read())
+            log.info("  [OK] Gitee Release created: %s", release.get("html_url"))
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")
+        log.error("  [FAIL] Gitee Release HTTP %d: %s", e.code, body)
+        sys.exit(1)
+
+    # Upload assets if requested
+    for asset_path in getattr(args, "assets", []) or []:
+        _upload_gitee_asset(release.get("id"), token, asset_path)
+
+
+def _upload_gitee_asset(release_id: str, token: str, asset_path: str) -> None:
+    """Upload asset to a Gitee Release via multipart upload_url."""
+    p = Path(asset_path)
+    if not p.is_file():
+        log.warning("  Asset not found, skipping: %s", asset_path)
+        return
+    log.info("  Uploading Gitee asset: %s (%s MB)", p.name, f"{p.stat().st_size / 1e6:.1f}")
+
+    # Gitee accepts multipart/form-data; build minimal manual multipart body
+    boundary = "----release_cli_boundary_" + os.urandom(8).hex()
+    filename = p.name
+    with open(p, "rb") as f:
+        file_bytes = f.read()
+    parts = []
+    parts.append(f"--{boundary}\r\n")
+    parts.append(f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n')
+    parts.append("Content-Type: application/octet-stream\r\n\r\n")
+    body = "".join(parts).encode("utf-8") + file_bytes + f"\r\n--{boundary}--\r\n".encode("utf-8")
+
+    req = urllib.request.Request(
+        f"https://gitee.com/api/v5/repos/{GITEE_REPO}/releases/{release_id}/attach_files",
+        data=body,
+        method="POST",
+        headers={
+            "Authorization": f"token {token}",
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+            "User-Agent": "release_cli.py",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=300) as r:
+            log.info("  [OK] Gitee asset uploaded: %s", p.name)
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")
+        log.error("  [FAIL] Gitee asset %s (HTTP %d): %s", p.name, e.code, body)
+        sys.exit(1)
+
+
+# ============================================================
+# Subcommand: webhook (apply side-effects on PR merge events)
+# ============================================================
+def cmd_webhook(args) -> int:
+    """Apply side-effects when a PR is merged.
+
+    Currently supports:
+      - Add a 'merged' label to a release PR
+      - (future) auto-close linked issues
+      - (future) notify a webhook URL
+
+    Designed to be called from a CI workflow on pull_request.closed action
+    where action == 'closed' and merged == true.
+
+    Required env vars:
+      GH_TOKEN, PR_NUMBER (the PR id)
+      REPO (defaults to colbertlee/langChain_langGraph)
+    """
+    log.info("=" * 70)
+    log.info("  PR WEBHOOK HANDLER")
+    log.info("=" * 70)
+
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    if not token:
+        log.error("GH_TOKEN env var is required")
+        return 1
+
+    pr_number = args.pr_number or os.environ.get("PR_NUMBER")
+    if not pr_number:
+        log.error("--pr-number (or PR_NUMBER env) is required")
+        return 1
+
+    repo = args.repo or os.environ.get("REPO") or GITHUB_REPO
+    log.info("  Repo:      %s", repo)
+    log.info("  PR number: %s", pr_number)
+    log.info("  Action:    %s", args.action)
+
+    # Fetch PR to detect merged state
+    req = urllib.request.Request(
+        f"https://api.github.com/repos/{repo}/pulls/{pr_number}",
+        headers={
+            "Authorization": f"token {token}",
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "release_cli.py",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            pr = json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        log.error("Failed to fetch PR: HTTP %d", e.code)
+        return 1
+
+    merged = bool(pr.get("merged"))
+    state = pr.get("state")
+    log.info("  PR state:  %s", state)
+    log.info("  Merged:    %s", merged)
+
+    if args.action == "merged" and not merged:
+        log.warning("  PR is not merged but --action=merged was specified; skipping label")
+        return 0
+
+    # Step 1: ensure label exists
+    if args.label:
+        log.info("  [1/3] Ensuring label '%s' exists ...", args.label)
+        _ensure_label(repo, token, args.label, color="0E8A16", description="PR has been merged")
+
+    # Step 2: apply label
+    if args.label:
+        log.info("  [2/3] Applying label to PR ...")
+        _apply_label(repo, token, pr_number, args.label)
+
+    # Step 3: optional close-comment
+    if args.comment and merged:
+        log.info("  [3/3] Posting merge comment ...")
+        _post_pr_comment(repo, token, pr_number, args.comment)
+
+    log.info("  [OK] Webhook handler complete")
+    return 0
+
+
+def _ensure_label(repo: str, token: str, name: str, color: str, description: str) -> None:
+    """Idempotently create a label (ignore 422 'already exists')."""
+    req = urllib.request.Request(
+        f"https://api.github.com/repos/{repo}/labels",
+        data=json.dumps({"name": name, "color": color, "description": description}).encode("utf-8"),
+        method="POST",
+        headers={
+            "Authorization": f"token {token}",
+            "Accept": "application/vnd.github+json",
+            "Content-Type": "application/json",
+            "User-Agent": "release_cli.py",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            log.info("    label '%s' created", name)
+    except urllib.error.HTTPError as e:
+        if e.code == 422:
+            log.info("    label '%s' already exists (skip)", name)
+        else:
+            log.warning("    label create failed HTTP %d: %s", e.code, e.read().decode("utf-8", errors="replace"))
+
+
+def _apply_label(repo: str, token: str, pr_number: str, name: str) -> None:
+    req = urllib.request.Request(
+        f"https://api.github.com/repos/{repo}/issues/{pr_number}/labels",
+        data=json.dumps({"labels": [name]}).encode("utf-8"),
+        method="POST",
+        headers={
+            "Authorization": f"token {token}",
+            "Accept": "application/vnd.github+json",
+            "Content-Type": "application/json",
+            "User-Agent": "release_cli.py",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            log.info("    [OK] label '%s' applied to PR #%s", name, pr_number)
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")
+        log.error("    [FAIL] HTTP %d: %s", e.code, body)
+        sys.exit(1)
+
+
+def _post_pr_comment(repo: str, token: str, pr_number: str, body: str) -> None:
+    req = urllib.request.Request(
+        f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments",
+        data=json.dumps({"body": body}).encode("utf-8"),
+        method="POST",
+        headers={
+            "Authorization": f"token {token}",
+            "Accept": "application/vnd.github+json",
+            "Content-Type": "application/json",
+            "User-Agent": "release_cli.py",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            log.info("    [OK] comment posted")
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")
+        log.error("    [FAIL] HTTP %d: %s", e.code, body)
+        sys.exit(1)
 
 
 # ============================================================
@@ -503,15 +753,18 @@ def build_parser() -> argparse.ArgumentParser:
         epilog="""\
 Subcommands:
   github    Push tag + create GitHub Release
-  gitee     Push tag + mirror to Gitee
+  gitee     Push tag + mirror to Gitee (--create-release for Gitee Release)
   protect   Apply branch protection (wraps apply_branch_protection.*)
   cleanup   Orphan-branch cleanup per VERSION_MANAGEMENT.md section 7.6
+  webhook   Apply side-effects on PR events (label/comment)
   status    Show latest release + tag/protection state
 
 Examples:
   python scripts/release/release_cli.py github v2.0.7 --body release_notes.md
+  python scripts/release/release_cli.py gitee v2.0.7 --create-release --body notes.md
   python scripts/release/release_cli.py protect master --enforce-admins
   python scripts/release/release_cli.py cleanup --switch-default-to-master --delete-main
+  python scripts/release/release_cli.py webhook --pr-number 2 --label release
   python scripts/release/release_cli.py status
 """,
     )
@@ -532,9 +785,33 @@ Examples:
                       help="skip git tag creation/push (Release-only)")
 
     # gitee
-    p_gt = sub.add_parser("gitee", help="mirror to Gitee")
+    p_gt = sub.add_parser("gitee", help="mirror to Gitee (optional Release creation)")
     p_gt.add_argument("version")
-    p_gt.add_argument("--skip-push", action="store_true")
+    p_gt.add_argument("--skip-push", action="store_true",
+                      help="skip git push (Release creation only)")
+    p_gt.add_argument("--create-release", action="store_true",
+                      help="create a Gitee Release (requires GITEE_TOKEN env var)")
+    p_gt.add_argument("--body", help="path to release notes file (UTF-8)")
+    p_gt.add_argument("--notes", dest="body_text", help="inline release notes")
+    p_gt.add_argument("--title", help="release title")
+    p_gt.add_argument("--target", help="commit SHA or branch (default: master)")
+    p_gt.add_argument("--asset", dest="assets", action="append", default=[],
+                      help="path to binary asset to upload (repeatable)")
+    p_gt.add_argument("--prerelease", action="store_true")
+
+    # webhook
+    p_wh = sub.add_parser("webhook",
+                          help="apply side-effects on PR events (label/comment) "
+                               "- typically called from CI on pull_request.closed")
+    p_wh.add_argument("--pr-number", help="PR id (or set PR_NUMBER env)")
+    p_wh.add_argument("--repo", help="repo (default: $REPO or $GH_REPO)")
+    p_wh.add_argument("--action", default="merged",
+                      choices=["merged", "closed", "opened"],
+                      help="event action (default: merged)")
+    p_wh.add_argument("--label", default="merged",
+                      help="label to apply (default: 'merged')")
+    p_wh.add_argument("--comment",
+                      help="optional comment body to post after merge")
 
     # protect
     p_pr = sub.add_parser("protect", help="apply branch protection")
@@ -564,7 +841,8 @@ def main() -> int:
     start_time = datetime.now()
     try:
         rc = {"github": cmd_github, "gitee": cmd_gitee, "protect": cmd_protect,
-              "cleanup": cmd_cleanup, "status": cmd_status}[args.command](args)
+              "cleanup": cmd_cleanup, "status": cmd_status,
+              "webhook": cmd_webhook}[args.command](args)
         success = (rc == 0)
         print_summary(args, start_time, success)
         return rc

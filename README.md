@@ -1080,6 +1080,7 @@ langChain_langGraph/
 | **架构师**(评估是否引入) | README §0 §1.0 §3 → docs/TECHNICAL_ARCHITECTURE.md |
 | **API 集成方** | docs/API.md → README §3 → web_console/src/lib/api.ts |
 | **发布负责人**(打 tag / release) | docs/VERSION_MANAGEMENT.md → scripts/release/release_cli.py → .github/PULL_REQUEST_TEMPLATE/release.md |
+| **运维复盘 / incident responder** | docs/INCIDENT_REPORT_v2.0.7.md → docs/POST_CLEANUP_VERIFICATION.md |
 
 ---
 
