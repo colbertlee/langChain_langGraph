@@ -29,7 +29,6 @@ if (-not $env:GH_TOKEN) {
 
 switch -Wildcard ($Branch) {
     "master" {
-        # required_status_checks + restrictions MUST be present (even as null) per GitHub REST API.
         $Payload = @{
             required_status_checks           = $null
             enforce_admins                   = $true
@@ -91,9 +90,6 @@ try {
     Write-Host "  required_linear_history:  $($Resp.required_linear_history.enabled)"
     Write-Host "  allow_force_pushes:       $($Resp.allow_force_pushes.enabled)"
     Write-Host "  allow_deletions:          $($Resp.allow_deletions.enabled)"
-    if ($Resp.required_pull_request_reviews) {
-        Write-Host "  required_reviews:         $($Resp.required_pull_request_reviews.required_approving_review_count)"
-    }
 }
 catch {
     $Code = $_.Exception.Response.StatusCode.value__
