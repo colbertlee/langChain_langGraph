@@ -4,6 +4,53 @@
 
 ---
 
+## [v2.0.8] - 2026-09-04
+
+**类型**: Tooling / Process · **SemVer**: PATCH
+**Retro**: [docs/INCIDENT_REPORT_v2.0.7.md](docs/INCIDENT_REPORT_v2.0.7.md)
+**SOP**: [docs/VERSION_MANAGEMENT.md](docs/VERSION_MANAGEMENT.md)
+
+### Added
+
+- `scripts/release/release_cli.py` — 跨平台统一发布 CLI(github / gitee / protect / cleanup / webhook / status 六子命令)
+- `scripts/release/apply_branch_protection.{sh,ps1}` — 分支保护一键应用脚本
+- `docs/VERSION_MANAGEMENT.md` — ~610 行完整发布 SOP,8 大节 + 2 附录
+- `docs/INCIDENT_REPORT_v2.0.7.md` — v2.0.7 release 7 个 incident 复盘
+- `.github/PULL_REQUEST_TEMPLATE/release.md` — release PR 模板(含 §7.6.4 checklist)
+- `.gitattributes` — 强制 `.sh` LF / `.ps1` CRLF,避免 Windows EOL 损坏
+
+### Changed
+
+- `ai_agent/pyproject.toml` — version `0.1.0` → `2.0.8`(与 tag 同步)
+- GitHub 远端 `master` 启用分支保护:enforce_admins=true,linear history,no force push,no branch deletion,conversation resolution
+- GitHub 远端 `release/v2.0.7-cleanup-verified` 启用保护:enforce_admins=false,owner 直接 hotfix
+
+### Fixed
+
+- I-1:orphan `main` 分支无法删除 → §7.6.2 强制先 PATCH default_branch
+- I-2:分支保护 PUT 返回 422 → payload 强制包含 `required_status_checks` 和 `restrictions`(即使为 null)
+- I-3:单 owner 仓库 PR 死锁 → §7.5.2 拆分多人 / 单 owner 两套 payload
+- I-4:`release_cli.py` 被 cleanup 误删 → 新增跨平台版本(100% stdlib)
+- I-5:tag 在 local/remote 漂移 → §7.2 固化"remote wins, never force-push"
+- I-6:cleanup backup 分支残留 → §7.6.3 明确 backup 分支保留 2 周后删除
+
+### Known Caveats
+
+- I-7:当前 PAT 缺少 `workflow` scope,`.github/workflows/*.yml` 未推送;release CLI 完全可用,workflows 是可选 accelerator。Permanent fix:重新生成含 `workflow` scope 的 PAT。
+- 单 owner 仓库下 `required_approving_review_count=0`(为避免 self-merge 死锁);多人协作出现时切回 1。
+
+### Migration
+
+无 breaking change。打 tag `v2.0.8` 后:
+
+```bash
+git fetch origin && git checkout master && git pull
+```
+
+无需数据迁移、无需配置变更。
+
+---
+
 ## [v2.0.0] - 2026-07-25
 
 ### Migration Guide · 从 v1.x 升级

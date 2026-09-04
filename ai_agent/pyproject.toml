@@ -1,6 +1,6 @@
 [project]
 name = "ai-agent"
-version = "0.1.0"
+version = "2.0.8"
 description = "AI Agent 后端服务（LangChain + LangGraph + MCP）"
 requires-python = ">=3.11"
 # PEP 621 项目元数据
