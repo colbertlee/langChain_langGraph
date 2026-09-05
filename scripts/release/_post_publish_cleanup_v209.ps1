@@ -4,12 +4,11 @@
 # 用法(在仓库根目录的 PowerShell):
 #   .\scripts\release\_post_publish_cleanup_v209.ps1
 #
-# 步骤:
-#   1. fetch origin + 重置本地 master 到 origin/master (b02c7cc1)
-#   2. 删除远端 release/v2.0.9 与 v2.0.9 两个分支(MCP误创建的临时 ref)
-#   3. 清理本地同名分支 + reflog
-#
-# 退出码: 0 = 全部 OK; 1 = 远端删除失败(可手动 Web UI 删); 2 = 本地 reset 失败(有未提交变更)
+# 退出码:
+#   0 = 全部 OK
+#   1 = 远端删除失败(可手动 Web UI 删)
+#   2 = 本地 reset 失败(有未提交变更)
+#   4 = git fetch 失败(沙盒/网络屏蔽 github.com:443,严禁继续 reset)
 
 [CmdletBinding()]
 param()
@@ -17,7 +16,25 @@ param()
 $ErrorActionPreference = "Stop"
 
 Write-Host "== [1/4] git fetch origin" -ForegroundColor Cyan
-git fetch origin
+$fetchOutput = git fetch origin 2>&1
+if ($LASTEXITCODE -ne 0) {
+    Write-Error @"
+
+❌ git fetch origin 失败(网络/沙盒屏蔽 github.com:443)。
+❌ 严禁在 fetch 失败后跑 'git reset --hard origin/master' ——
+   origin/master 引用是陈旧的,会把本地 HEAD 强制回退到旧 commit,
+   丢失所有本地未推送的 commit(本会话已踩 2 次)。
+
+请:
+  1. 解除沙盒限制 / 换网络环境(VPN / 手机热点 / 直连)
+  2. 再跑此脚本
+  3. 或 Web UI 上手动清理:https://github.com/colbertlee/langChain_langGraph/branches
+
+fetch 错误详情:
+$fetchOutput
+"@
+    exit 4
+}
 
 Write-Host "== [2/4] 重置本地 master → origin/master" -ForegroundColor Cyan
 $status = git status --porcelain
