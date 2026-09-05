@@ -119,7 +119,6 @@ def job_3_publish_pypi(version: str) -> None:
     print("     2. GitHub Environment 'pypi' created")
     print("     3. Real push of git tag v" + version)
     print()
-    # 模拟 PEP 740 attestation 生成（本地）
     sdist = DIST_DIR / f"ai_agent-{version}.tar.gz"
     wheel = DIST_DIR / f"ai_agent-{version}-py3-none-any.whl"
     for artifact in [sdist, wheel]:
@@ -158,7 +157,6 @@ def job_5_publish_docker(version: str, skip: bool) -> None:
     if skip:
         warn("Skipped (--skip-docker)")
         return
-    # 检查 docker
     if not shutil.which("docker"):
         warn("docker not installed; skipping build")
         return
@@ -179,7 +177,6 @@ def job_6_github_release(version: str) -> None:
     notes_file = PROJECT_ROOT / "RELEASE_NOTES.md"
     pyproject = (PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8")
 
-    # 跑 git log
     try:
         log = run(["git", "log", "--pretty=format:- %s", "-20"], check=False)
         recent_commits = log.stdout.strip() or "(no recent commits)"
@@ -218,7 +215,6 @@ def job_7_package_manifests(version: str) -> None:
     sha256 = hashlib.sha256(wheel.read_bytes()).hexdigest()
     tarball_url = f"https://github.com/colbertlee/langChain_langGraph/archive/refs/tags/v{version}.tar.gz"
 
-    # Scoop manifest
     scoop_template = (WEB_CONSOLE / ".github" / "scoop" / "ai-agent.json")
     if scoop_template.exists():
         scoop_text = scoop_template.read_text(encoding="utf-8")
@@ -234,7 +230,6 @@ def job_7_package_manifests(version: str) -> None:
     else:
         warn("Scoop template not found")
 
-    # Brew formula
     brew_template = (WEB_CONSOLE / ".github" / "homebrew-tap" / "ai-agent.rb")
     if brew_template.exists():
         brew_text = brew_template.read_text(encoding="utf-8")

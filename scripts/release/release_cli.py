@@ -49,19 +49,14 @@ logging.basicConfig(
 log = logging.getLogger("release_cli")
 
 
-# ============================================================
 # Subcommand: github
-# ============================================================
 def cmd_github(args) -> int:
-    """Push tag + create GitHub Release."""
     log.info("=" * 70)
     log.info("  PUBLISH TO GITHUB")
     log.info("=" * 70)
     version = _normalize_version(args.version)
     log.info("  Version:  %s", version)
     log.info("  Repo:     %s", GITHUB_REPO)
-
-    # Step 1: push tag (annotated)
     if not args.skip_push:
         tag = f"v{version}"
         if not _tag_exists(tag):
@@ -73,15 +68,12 @@ def cmd_github(args) -> int:
         _run(["git", "push", "origin", tag], check=True)
     else:
         log.info("  [skip] Tag push skipped (--skip-push)")
-
-    # Step 2: create Release (gh CLI first, curl fallback)
     log.info("  [3/3] Creating GitHub Release ...")
     if shutil.which("gh"):
         _create_release_via_gh(args, version)
     else:
         log.info("  gh CLI not found; falling back to REST API (curl)")
         _create_release_via_curl(args, version)
-
     return 0
 
 
@@ -112,18 +104,13 @@ def _create_release_via_curl(args, version: str) -> None:
     if not token:
         log.error("GH_TOKEN (or GITHUB_TOKEN) not set; cannot call REST API")
         sys.exit(1)
-
-    # Resolve target SHA
     target_sha = args.target or _get_default_branch_sha(GITHUB_REPO, token)
     log.info("  Target commit: %s", target_sha)
-
-    # Build payload
     notes = ""
     if args.body and Path(args.body).is_file():
         notes = Path(args.body).read_text(encoding="utf-8")
     elif args.body_text:
         notes = args.body_text
-
     payload = {
         "tag_name": f"v{version}",
         "target_commitish": target_sha,
@@ -132,8 +119,6 @@ def _create_release_via_curl(args, version: str) -> None:
         "draft": bool(args.draft),
         "prerelease": bool(args.prerelease),
     }
-
-    # POST /releases
     req = urllib.request.Request(
         f"https://api.github.com/repos/{GITHUB_REPO}/releases",
         data=json.dumps(payload).encode("utf-8"),
@@ -153,8 +138,6 @@ def _create_release_via_curl(args, version: str) -> None:
         body = e.read().decode("utf-8", errors="replace")
         log.error("  [FAIL] HTTP %d: %s", e.code, body)
         sys.exit(1)
-
-    # Upload assets
     if args.assets:
         upload_url = release["upload_url"].split("{")[0]
         for asset_path in args.assets:
@@ -167,7 +150,6 @@ def _upload_asset(upload_url: str, token: str, version: str, asset_path: str) ->
         log.warning("  Asset not found, skipping: %s", asset_path)
         return
     log.info("  Uploading asset: %s (%s MB)", p.name, f"{p.stat().st_size / 1e6:.1f}")
-    # URL-encode filename for Unicode safety
     from urllib.parse import quote
     safe_name = quote(p.name)
     with open(p, "rb") as f:
@@ -222,11 +204,8 @@ def _tag_exists(tag: str) -> bool:
     return bool(rc)
 
 
-# ============================================================
 # Subcommand: gitee
-# ============================================================
 def cmd_gitee(args) -> int:
-    """Mirror master + tags to Gitee, optionally create a Gitee Release."""
     log.info("=" * 70)
     log.info("  MIRROR TO GITEE")
     log.info("=" * 70)
@@ -234,8 +213,6 @@ def cmd_gitee(args) -> int:
     log.info("  Version:  %s", version)
     log.info("  Repo:     %s", GITEE_REPO)
     log.info("  Create Release: %s", bool(args.create_release and os.environ.get("GITEE_TOKEN")))
-
-    # Step 1: push master + tags
     if not args.skip_push:
         log.info("  [1/3] Pushing master to gitee ...")
         _run(["git", "push", "gitee", "master"], check=True)
@@ -247,8 +224,6 @@ def cmd_gitee(args) -> int:
                 log.info("  [2/3] Skip: tag %s does not exist locally", t)
     else:
         log.info("  [skip] Tag push skipped (--skip-push)")
-
-    # Step 2: optionally create Gitee Release (only if both --create-release and GITEE_TOKEN set)
     if args.create_release:
         token = os.environ.get("GITEE_TOKEN")
         if not token:
@@ -260,17 +235,11 @@ def cmd_gitee(args) -> int:
         log.info("  [3/3] Skip Release creation (pass --create-release to enable)")
         log.info("  Note: per VERSION_MANAGEMENT.md section 6, GitHub is the source of truth;")
         log.info("        Gitee Releases are optional and only for users stuck behind GFW.")
-
     log.info("  [OK] Gitee mirror synced")
     return 0
 
 
 def _create_gitee_release(version: str, token: str, args) -> None:
-    """Create a Gitee Release via Gitee OpenAPI v5.
-
-    Gitee API: POST https://gitee.com/api/v5/repos/{owner}/{repo}/releases
-    Required scope: project (token must be personal access token with project scope).
-    """
     tag_name = f"v{version}"
     target = args.target or "master"
     notes = ""
@@ -278,7 +247,6 @@ def _create_gitee_release(version: str, token: str, args) -> None:
         notes = Path(args.body).read_text(encoding="utf-8")
     elif getattr(args, "body_text", None):
         notes = args.body_text
-
     payload = {
         "tag_name": tag_name,
         "target_commitish": target,
@@ -287,7 +255,6 @@ def _create_gitee_release(version: str, token: str, args) -> None:
         "prerelease": bool(getattr(args, "prerelease", False)),
         "draft": False,
     }
-
     req = urllib.request.Request(
         f"https://gitee.com/api/v5/repos/{GITEE_REPO}/releases",
         data=json.dumps(payload).encode("utf-8"),
@@ -306,21 +273,16 @@ def _create_gitee_release(version: str, token: str, args) -> None:
         body = e.read().decode("utf-8", errors="replace")
         log.error("  [FAIL] Gitee Release HTTP %d: %s", e.code, body)
         sys.exit(1)
-
-    # Upload assets if requested
     for asset_path in getattr(args, "assets", []) or []:
         _upload_gitee_asset(release.get("id"), token, asset_path)
 
 
 def _upload_gitee_asset(release_id: str, token: str, asset_path: str) -> None:
-    """Upload asset to a Gitee Release via multipart upload_url."""
     p = Path(asset_path)
     if not p.is_file():
         log.warning("  Asset not found, skipping: %s", asset_path)
         return
     log.info("  Uploading Gitee asset: %s (%s MB)", p.name, f"{p.stat().st_size / 1e6:.1f}")
-
-    # Gitee accepts multipart/form-data; build minimal manual multipart body
     boundary = "----release_cli_boundary_" + os.urandom(8).hex()
     filename = p.name
     with open(p, "rb") as f:
@@ -330,7 +292,6 @@ def _upload_gitee_asset(release_id: str, token: str, asset_path: str) -> None:
     parts.append(f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n')
     parts.append("Content-Type: application/octet-stream\r\n\r\n")
     body = "".join(parts).encode("utf-8") + file_bytes + f"\r\n--{boundary}--\r\n".encode("utf-8")
-
     req = urllib.request.Request(
         f"https://gitee.com/api/v5/repos/{GITEE_REPO}/releases/{release_id}/attach_files",
         data=body,
@@ -350,44 +311,23 @@ def _upload_gitee_asset(release_id: str, token: str, asset_path: str) -> None:
         sys.exit(1)
 
 
-# ============================================================
-# Subcommand: webhook (apply side-effects on PR merge events)
-# ============================================================
+# Subcommand: webhook
 def cmd_webhook(args) -> int:
-    """Apply side-effects when a PR is merged.
-
-    Currently supports:
-      - Add a 'merged' label to a release PR
-      - (future) auto-close linked issues
-      - (future) notify a webhook URL
-
-    Designed to be called from a CI workflow on pull_request.closed action
-    where action == 'closed' and merged == true.
-
-    Required env vars:
-      GH_TOKEN, PR_NUMBER (the PR id)
-      REPO (defaults to colbertlee/langChain_langGraph)
-    """
     log.info("=" * 70)
     log.info("  PR WEBHOOK HANDLER")
     log.info("=" * 70)
-
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     if not token:
         log.error("GH_TOKEN env var is required")
         return 1
-
     pr_number = args.pr_number or os.environ.get("PR_NUMBER")
     if not pr_number:
         log.error("--pr-number (or PR_NUMBER env) is required")
         return 1
-
     repo = args.repo or os.environ.get("REPO") or GITHUB_REPO
     log.info("  Repo:      %s", repo)
     log.info("  PR number: %s", pr_number)
     log.info("  Action:    %s", args.action)
-
-    # Fetch PR to detect merged state
     req = urllib.request.Request(
         f"https://api.github.com/repos/{repo}/pulls/{pr_number}",
         headers={
@@ -402,37 +342,27 @@ def cmd_webhook(args) -> int:
     except urllib.error.HTTPError as e:
         log.error("Failed to fetch PR: HTTP %d", e.code)
         return 1
-
     merged = bool(pr.get("merged"))
     state = pr.get("state")
     log.info("  PR state:  %s", state)
     log.info("  Merged:    %s", merged)
-
     if args.action == "merged" and not merged:
         log.warning("  PR is not merged but --action=merged was specified; skipping label")
         return 0
-
-    # Step 1: ensure label exists
     if args.label:
         log.info("  [1/3] Ensuring label '%s' exists ...", args.label)
         _ensure_label(repo, token, args.label, color="0E8A16", description="PR has been merged")
-
-    # Step 2: apply label
     if args.label:
         log.info("  [2/3] Applying label to PR ...")
         _apply_label(repo, token, pr_number, args.label)
-
-    # Step 3: optional close-comment
     if args.comment and merged:
         log.info("  [3/3] Posting merge comment ...")
         _post_pr_comment(repo, token, pr_number, args.comment)
-
     log.info("  [OK] Webhook handler complete")
     return 0
 
 
 def _ensure_label(repo: str, token: str, name: str, color: str, description: str) -> None:
-    """Idempotently create a label (ignore 422 'already exists')."""
     req = urllib.request.Request(
         f"https://api.github.com/repos/{repo}/labels",
         data=json.dumps({"name": name, "color": color, "description": description}).encode("utf-8"),
@@ -496,21 +426,16 @@ def _post_pr_comment(repo: str, token: str, pr_number: str, body: str) -> None:
         sys.exit(1)
 
 
-# ============================================================
 # Subcommand: protect
-# ============================================================
 def cmd_protect(args) -> int:
-    """Apply branch protection by delegating to apply_branch_protection.{sh,ps1}."""
     log.info("=" * 70)
     log.info("  APPLY BRANCH PROTECTION")
     log.info("=" * 70)
     log.info("  Branch: %s", args.branch)
     log.info("  Enforce admins: %s", args.enforce_admins)
-
     if not os.environ.get("GH_TOKEN"):
         log.error("GH_TOKEN env var is required")
         return 1
-
     if sys.platform == "win32" and PROTECT_PS1.exists():
         cmd = [
             "powershell", "-ExecutionPolicy", "Bypass",
@@ -521,14 +446,10 @@ def cmd_protect(args) -> int:
     else:
         log.error("Neither apply_branch_protection.ps1 nor .sh found")
         return 1
-
     log.info("  Running: %s", " ".join(cmd))
     _run(cmd, check=False)
-
-    # Apply enforce_admins override if requested
     if args.enforce_admins is not None:
         _patch_enforce_admins(args.branch, args.enforce_admins)
-
     return 0
 
 
@@ -566,41 +487,27 @@ def _patch_enforce_admins(branch: str, enforce: bool) -> None:
         log.error("  [FAIL] HTTP %d", e.code)
 
 
-# ============================================================
-# Subcommand: cleanup (orphan branch cleanup per section 7.6)
-# ============================================================
+# Subcommand: cleanup
 def cmd_cleanup(args) -> int:
-    """Orphan branch cleanup per docs/VERSION_MANAGEMENT.md section 7.6."""
     log.info("=" * 70)
     log.info("  ORPHAN BRANCH CLEANUP")
     log.info("=" * 70)
-
     token = os.environ.get("GH_TOKEN")
     if not token and (args.delete_main or args.list_remote):
         log.error("GH_TOKEN env var is required for remote operations")
         return 1
-
-    # Step 1: list remote branches
     if args.list_remote:
         _list_remote_branches(token)
         return 0
-
-    # Step 2: switch default_branch to master (must come before delete main)
     if args.switch_default_to_master:
         log.info("  [1/4] Switching default branch to master ...")
         _patch_default_branch(token, "master")
-
-    # Step 3: delete orphan main
     if args.delete_main:
         log.info("  [2/4] Deleting orphan main branch ...")
         _delete_remote_ref(token, "main")
-
-    # Step 4: prune stale local refs
     log.info("  [3/4] Pruning local refs ...")
     _run(["git", "remote", "set-head", "origin", "-d"], check=False)
     _run(["git", "fetch", "--prune", "origin"], check=False)
-
-    # Step 5: print remaining
     log.info("  [4/4] Remaining remote branches:")
     _list_remote_branches(token)
     log.info("")
@@ -660,16 +567,11 @@ def _list_remote_branches(token: str | None) -> None:
                 log.info("      - %s  (%s)", short, sha[:8])
 
 
-# ============================================================
 # Subcommand: status
-# ============================================================
 def cmd_status(args) -> int:
-    """Show latest release + tag/protection state."""
     log.info("=" * 70)
     log.info("  RELEASE STATUS")
     log.info("=" * 70)
-
-    # Local
     log.info("  Local master:  %s", _git_rev("master"))
     log.info("")
     log.info("  Local tags:")
@@ -677,8 +579,6 @@ def cmd_status(args) -> int:
     for line in (tag_proc.stdout or "").splitlines()[:10]:
         log.info("    - %s", line)
     log.info("")
-
-    # GitHub
     token = os.environ.get("GH_TOKEN")
     if token:
         log.info("  GitHub releases:")
@@ -701,15 +601,11 @@ def cmd_status(args) -> int:
             log.warning("    [FAIL] HTTP %d", e.code)
     else:
         log.info("  GitHub releases: (set GH_TOKEN to query)")
-
     log.info("")
     log.info("  For full SOP, see docs/VERSION_MANAGEMENT.md")
     return 0
 
 
-# ============================================================
-# Helpers
-# ============================================================
 def _normalize_version(v: str) -> str:
     return v.lstrip("v")
 
@@ -742,94 +638,53 @@ def print_summary(args, start_time, success):
     log.info("=" * 70)
 
 
-# ============================================================
-# argparse
-# ============================================================
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="release_cli",
         description="Unified release CLI for colbertlee/langChain_langGraph",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""\
-Subcommands:
-  github    Push tag + create GitHub Release
-  gitee     Push tag + mirror to Gitee (--create-release for Gitee Release)
-  protect   Apply branch protection (wraps apply_branch_protection.*)
-  cleanup   Orphan-branch cleanup per VERSION_MANAGEMENT.md section 7.6
-  webhook   Apply side-effects on PR events (label/comment)
-  status    Show latest release + tag/protection state
-
-Examples:
-  python scripts/release/release_cli.py github v2.0.7 --body release_notes.md
-  python scripts/release/release_cli.py gitee v2.0.7 --create-release --body notes.md
-  python scripts/release/release_cli.py protect master --enforce-admins
-  python scripts/release/release_cli.py cleanup --switch-default-to-master --delete-main
-  python scripts/release/release_cli.py webhook --pr-number 2 --label release
-  python scripts/release/release_cli.py status
-""",
     )
     sub = parser.add_subparsers(dest="command", required=True, help="subcommand")
 
-    # github
     p_gh = sub.add_parser("github", help="publish to GitHub")
-    p_gh.add_argument("version", help="version like 2.0.7 (with or without 'v')")
-    p_gh.add_argument("--body", help="path to release notes file (UTF-8)")
-    p_gh.add_argument("--notes", dest="body_text", help="inline release notes")
-    p_gh.add_argument("--title", help="release title (default: 'AI Agent vX.Y.Z')")
-    p_gh.add_argument("--target", help="commit SHA or branch (default: default_branch HEAD)")
-    p_gh.add_argument("--asset", dest="assets", action="append", default=[],
-                      help="path to binary asset to upload (repeatable)")
+    p_gh.add_argument("version")
+    p_gh.add_argument("--body")
+    p_gh.add_argument("--notes", dest="body_text")
+    p_gh.add_argument("--title")
+    p_gh.add_argument("--target")
+    p_gh.add_argument("--asset", dest="assets", action="append", default=[])
     p_gh.add_argument("--draft", action="store_true")
     p_gh.add_argument("--prerelease", action="store_true")
-    p_gh.add_argument("--skip-push", action="store_true",
-                      help="skip git tag creation/push (Release-only)")
+    p_gh.add_argument("--skip-push", action="store_true")
 
-    # gitee
     p_gt = sub.add_parser("gitee", help="mirror to Gitee (optional Release creation)")
     p_gt.add_argument("version")
-    p_gt.add_argument("--skip-push", action="store_true",
-                      help="skip git push (Release creation only)")
-    p_gt.add_argument("--create-release", action="store_true",
-                      help="create a Gitee Release (requires GITEE_TOKEN env var)")
-    p_gt.add_argument("--body", help="path to release notes file (UTF-8)")
-    p_gt.add_argument("--notes", dest="body_text", help="inline release notes")
-    p_gt.add_argument("--title", help="release title")
-    p_gt.add_argument("--target", help="commit SHA or branch (default: master)")
-    p_gt.add_argument("--asset", dest="assets", action="append", default=[],
-                      help="path to binary asset to upload (repeatable)")
+    p_gt.add_argument("--skip-push", action="store_true")
+    p_gt.add_argument("--create-release", action="store_true")
+    p_gt.add_argument("--body")
+    p_gt.add_argument("--notes", dest="body_text")
+    p_gt.add_argument("--title")
+    p_gt.add_argument("--target")
+    p_gt.add_argument("--asset", dest="assets", action="append", default=[])
     p_gt.add_argument("--prerelease", action="store_true")
 
-    # webhook
-    p_wh = sub.add_parser("webhook",
-                          help="apply side-effects on PR events (label/comment) "
-                               "- typically called from CI on pull_request.closed")
-    p_wh.add_argument("--pr-number", help="PR id (or set PR_NUMBER env)")
-    p_wh.add_argument("--repo", help="repo (default: $REPO or $GH_REPO)")
-    p_wh.add_argument("--action", default="merged",
-                      choices=["merged", "closed", "opened"],
-                      help="event action (default: merged)")
-    p_wh.add_argument("--label", default="merged",
-                      help="label to apply (default: 'merged')")
-    p_wh.add_argument("--comment",
-                      help="optional comment body to post after merge")
+    p_wh = sub.add_parser("webhook", help="apply side-effects on PR events")
+    p_wh.add_argument("--pr-number")
+    p_wh.add_argument("--repo")
+    p_wh.add_argument("--action", default="merged", choices=["merged", "closed", "opened"])
+    p_wh.add_argument("--label", default="merged")
+    p_wh.add_argument("--comment")
 
-    # protect
     p_pr = sub.add_parser("protect", help="apply branch protection")
-    p_pr.add_argument("branch", help="branch name (master or release/vX.Y.Z-...)")
+    p_pr.add_argument("branch")
     p_pr.add_argument("--enforce-admins", type=lambda s: s.lower() in ("true", "1", "yes"),
-                      default=None,
-                      help="override enforce_admins (true/false) after applying base rules")
+                      default=None)
 
-    # cleanup
     p_cl = sub.add_parser("cleanup", help="orphan branch cleanup per section 7.6")
-    p_cl.add_argument("--list-remote", action="store_true",
-                      help="only list remote branches")
-    p_cl.add_argument("--switch-default-to-master", action="store_true",
-                      help="PATCH default_branch=master (required before deleting main)")
-    p_cl.add_argument("--delete-main", action="store_true",
-                      help="DELETE refs/heads/main (must run after switch-default)")
+    p_cl.add_argument("--list-remote", action="store_true")
+    p_cl.add_argument("--switch-default-to-master", action="store_true")
+    p_cl.add_argument("--delete-main", action="store_true")
 
-    # status
     sub.add_parser("status", help="show release status")
 
     return parser

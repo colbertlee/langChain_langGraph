@@ -29,10 +29,8 @@ if [[ -z "${GH_TOKEN:-}" ]]; then
   exit 1
 fi
 
-# 根据分支名选择保护规则 payload
 case "$BRANCH" in
   master)
-    # required_status_checks + restrictions MUST be present (even as null) per GitHub REST API.
     PAYLOAD='{
       "required_status_checks": null,
       "enforce_admins": true,

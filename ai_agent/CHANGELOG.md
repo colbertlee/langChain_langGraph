@@ -7,6 +7,36 @@ AI Agent 项目更新记录。
 
 <!-- bumpversion placeholder -->
 
+## v2.0.9 (2026-09-04) — Harness + v2.0 slim runtime
+
+### Added
+- `ai_agent/v2_slim/` — slim runtime namespace: 5 old modules collapsed into 3 (`tools_v2.py`, `memory_store_v2.py`, `multi_agent_v2.py`, `approval.py`, `telemetry.py`). Frozen names (`frozen("name")()`) raise `NotImplementedError`. Default: slim on (`AIAgent_LEGACY=false`).
+- `ai_agent/harness.py` + `harness_runner.py` + `harness_storage.py` + `harness_cli.py` + `harness_observability.py` — Agent 运行时门面 + Eval Harness(JSONL 加载 + Keyword/Embed/Composite 评分 + `cases.jsonl`/`summary.json`/`metrics.json` 落盘)。
+- `ai_agent/scripts/migrate_memory_v1_to_v2.py` — EPISODIC/PROCEDURAL 合入 ShortTerm/LongTerm。
+- `ai_agent/scripts/staging_monitor_loop.py` — 24h staging 探针循环。
+- `ai_agent/docs/HARNESS.md` + `STAGING_DEPLOY_CHECKLIST.md` + `STAGING_MONITORING.md` — Harness 参考 + staging 部署与监控 runbook。
+- `ai_agent/evals/` — eval harness 基础(已有 harness_dry_* / harness_pr*_local / harness_smoke_* runs)。
+- `.github/workflows/release.yml` — tag 驱动的 release 流水线(sdist + wheel + source tarball + release_cli.py github/gitee)。
+- `.github/workflows/pr-merge-label.yml` — merged release PR 自动打 `release` label 并 comment。
+- 11 个新 test 模块(`test_harness*.py`、`test_staging_monitor.py`、`test_v2_slim_*.py`) — slim profile 下 `613 passed in 89.14s`。
+
+### Changed
+- `agent.py` — `init_agent()` 运行时切换 LEGACY_MODE 不再需重启。
+- `app.py` — `/api/models` 跟随 LEGACY_MODE。
+- `api.py` — `/api/health` 返回运行时 flavor(`v2_slim` vs `legacy`)给 staging 探针。
+- `config.py` — 新增 `LEGACY_MODE` 与 `V2_SLIM_PACKAGE` 环境变量。
+- `web_ui.py` — Web 入口跟随 LEGACY_MODE。
+- `pyproject.toml` — version `2.0.8` → `2.0.9`;新增 `harness_runner / harness_storage / harness_cli` py-modules。
+
+### Tests
+- `tests/test_harness.py` — CaseLoader / Scorerers / Runner / Storage / CLI dry-run。
+- `tests/test_harness_facade.py` — Harness.run / run_stream + Trace shape。
+- `tests/test_harness_observability.py` — Trace → observability 落盘回环。
+- `tests/test_staging_monitor.py` — 15 个 staging 探针。
+- `tests/test_v2_slim_*.py` × 6 — 双入口一致性 / frozen 抛错 / LEGACY 切换 / 迁移 / run pipeline / 7-event schema / 工具子命令路由。
+
+总计 slim profile: 613 passed ✅(legacy `tests/legacy/` 280 用例 skip)
+
 ## v0.3.0 (2026-07-23) — 阶段 B：国内主流模型 Provider
 
 ### Added
@@ -28,36 +58,3 @@ AI Agent 项目更新记录。
 - `config.py`：新增 4 个 API Key 环境变量（DOUBAO_API_KEY / HUNYUAN_API_KEY / SILICONFLOW_API_KEY / GLM_API_KEY 别名）
 - `agent.py`：`_build_provider_base_url` / `_api_key_for_provider` / `_get_model` 补全 4 个新 provider（统一走 ChatOpenAI）
 - Fallback chain 加入新 provider，跨 provider 容错更稳健
-
-### Tests
-- `tests/test_models_registry.py` — 20 个新用例
-- 既有 76 个测试全过（无回归）
-
-总计 96 个测试 ✅
-
-## v0.2.0 (2026-07-23) — 阶段 A：流式中间状态 + Prompt 工程化
-
-### Added
-- `prompt_registry.py`：提示词模板化与版本化管理，支持 system / role / tool 三段拼接 + CoT 注入
-- `run_stream` 改为产出结构化事件：`start / thinking / chunk / tool_call / safety / error / complete`
-- 新增 `/api/prompts` 与 `/api/prompts/rollback` 两个端点
-- 前端 `web/index.html`：
-  - 工具调用时间线（pill 形式）
-  - 思维链折叠面板（`## 思考 ##`）
-  - 安全提示横幅
-  - 设置面板新增"Prompt 版本管理"
-
-### Tests
-- `tests/test_prompt_registry.py` — 10 个用例
-- `tests/test_stream_events.py` — 7 个用例
-- `tests/test_prompts_api.py` — 4 个用例
-- 既有 55 个 `test_agent.py` 用例全部通过（向后兼容）
-
-## v0.1.0 (2025-01-XX)
-
-### Added
-- 初始版本
-- FastAPI + React 全栈 AI Agent 控制台
-- 6 个页面：Chat / Agents / Approval / Observability / Tools / Settings
-- 后端 LangChain / LangGraph / MCP 集成
-- GitHub Actions CI（7 jobs）+ Docker Compose + GHCR 发布

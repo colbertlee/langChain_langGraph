@@ -1,16 +1,19 @@
 # VERSION_MANAGEMENT.md · 版本与发布管理规范
 
-> 本文件是项目"版本号如何变化、tag / release / 分支如何打、孤儿分支如何清理、
-> 主分支如何保护"的**唯一权威 SOP**。
+> 本文件是项目“版本号如何变化、tag / release / 分支如何打、孤儿分支如何清理、
+> 主分支如何保护”的**唯一权威 SOP**。
 >
 > 适用仓库:`colbertlee/langChain_langGraph`(镜像:`gitee.com/colbertlee/langChain_langGraph`)
 > 适用版本:**v2.0.7 起**
-> 最近更新:2026-09-04(新增 §7.7 release CI + webhook sub-command + INCIDENT_REPORT 引用)
+> 最近更新:2026-09-04(v2.0.9 同步:Harness + v2.0 slim + release CI workflow 落地)
 >
 > **配套文档**:
+> - [release_notes/v2.0.9.md](../release_notes/v2.0.9.md) — Harness + v2.0 slim runtime 发布说明
+> - [release_notes/v2.0.8.md](../release_notes/v2.0.8.md) — Tooling / process 发布说明
 > - [POST_CLEANUP_VERIFICATION.md](POST_CLEANUP_VERIFICATION.md) — v2.0.7 cleanup 后的四层 QA 报告
 > - [INCIDENT_REPORT_v2.0.7.md](INCIDENT_REPORT_v2.0.7.md) — v2.0.7 release 的 6 个 incident 事后复盘
 > - [`scripts/release/release_cli.py`](../scripts/release/release_cli.py) — SOP 工具化入口
+> - [`.github/workflows/release.yml`](../.github/workflows/release.yml) — tag 驱动的 release 流水线(v2.0.9 落地)
 
 ---
 
@@ -29,6 +32,7 @@
    - §7.4 [release source of truth:tag](#74-release-source-of-truthtag)
    - §7.5 [Branch protection rules(分支保护)](#75-branch-protection-rules分支保护)
    - §7.6 [新增:Orphan Branch Cleanup SOP](#76-新增orphan-branch-cleanup-sop)
+   - §7.7 [新增:release CI + webhook 子命令](#77-新增release-ci--webhook-子命令)
 8. [常见问题](#8-常见问题)
 
 ---
@@ -137,7 +141,7 @@ git push origin vX.Y.Z-cleanup-verified
 
 ### 4.3 推 release 分支(可选,merge 后会自动留下 ref)
 
-仅在需要"按分支锚定 release"时使用,命名:`release/vX.Y.Z[-suffix]`:
+仅在需要“按分支锚定 release”时使用,命名:`release/vX.Y.Z[-suffix]`:
 
 ```powershell
 git push -u origin release/vX.Y.Z-cleanup-verified
@@ -212,7 +216,7 @@ git push gitee release/vX.Y.Z-cleanup-verified
 > - 多余的 `chore/project-cleanup-backup` 本地备份分支长期残留
 > - 孤儿 `release/v2.0.7-cleanup-verified` 分支 merge 后无人清理
 >
-> 本节把"发布完要做什么"明文化,避免下次再手动摸索。
+> 本节把“发布完要做什么”明文化,避免下次再手动摸索。
 
 ### 7.1 删除 orphan 分支
 
@@ -221,7 +225,6 @@ git push gitee release/vX.Y.Z-cleanup-verified
 #### 7.1.1 一次性清点脚本
 
 ```powershell
-# 列出所有本地与远端分支 + 它们的提交摘要
 git for-each-ref --format='%(refname:short) %(committerdate:short) %(subject)' refs/heads refs/remotes/origin | Sort-Object
 ```
 
@@ -254,7 +257,6 @@ git push origin :<orphan-name>
 ### 7.2 同步本地 tag 与远端 tag
 
 ```powershell
-# 查看 tag 漂移
 git ls-remote origin 'refs/tags/*'
 git for-each-ref --format='%(refname:short) %(objectname:short)' refs/tags
 ```
@@ -262,10 +264,7 @@ git for-each-ref --format='%(refname:short) %(objectname:short)' refs/tags
 如果本地 tag 与远端指向不同 commit:
 
 ```powershell
-# 删除本地 tag(不影响远端)
 git tag -d vX.Y.Z
-
-# 重新拉取(远端为准)
 git fetch origin refs/tags/vX.Y.Z:refs/tags/vX.Y.Z
 ```
 
@@ -301,7 +300,6 @@ git log --oneline origin/master..master   # 本地有远端没有的
 3. 发布新版本时,即使 master 已经超过旧 tag,Release 仍然指向原 tag 的 commit
 
 ```powershell
-# 校验:发布 v2.0.7 后,master 推进到 v2.0.8 期间,v2.0.7 的 release 不变
 git rev-parse v2.0.7^{commit}
 curl -s -H "Authorization: token $GH_TOKEN" \
   https://api.github.com/repos/colbertlee/langChain_langGraph/releases/tags/v2.0.7 \
@@ -387,7 +385,7 @@ GitHub 行为:`required_approving_review_count >= 1` + `require_last_push_approv
 }
 ```
 
-⚠️ **单 owner 仓库下,你损失的只是"PR 流程审计痕迹",但仍然保留**:
+⚠️ **单 owner 仓库下,你损失的只是“PR 流程审计痕迹”,但仍然保留**:
 - ✅ 必须走 PR(不能直接 push)
 - ✅ linear history
 - ✅ 禁止 force push
@@ -397,7 +395,7 @@ GitHub 行为:`required_approving_review_count >= 1` + `require_last_push_approv
 
 > **何时升级回多人规则**:仓库有第二个 maintainer 出现时,立即执行
 > `python scripts/release/release_cli.py protect master --enforce-admins` 配合
-> 上方"多人协作"模板,把 `required_approving_review_count` 改回 1。
+> 上方“多人协作”模板,把 `required_approving_review_count` 改回 1。
 
 #### 7.5.3 release/* 保护规则
 
@@ -432,32 +430,7 @@ GitHub 行为:`required_approving_review_count >= 1` + `require_last_push_approv
 `release_cli.py protect` 子命令会自动按平台选择 `.ps1` 或 `.sh`,并支持 `--enforce-admins=true|false`
 二次 patch(用于单 owner 仓库首批 SOP 落地的临时绕过场景)。
 
-下面是底层 `.sh` 实现参考,功能与上述三个入口等价:
-
-```bash
-# scripts/release/apply_branch_protection.sh
-# 用法:GH_TOKEN=ghp_xxx ./apply_branch_protection.sh
-
-REPO=colbertlee/langChain_langGraph
-BRANCH=$1   # master 或 release/v2.0.7-cleanup-verified
-
-case "$BRANCH" in
-  master) PAYLOAD='{"enforce_admins":true,"required_pull_request_reviews":{"required_approving_review_count":1,"dismiss_stale_reviews":true},"required_linear_history":true,"allow_force_pushes":false,"allow_deletions":false,"required_conversation_resolution":true}' ;;
-  release/*) PAYLOAD='{"enforce_admins":false,"required_pull_request_reviews":null,"required_linear_history":false,"allow_force_pushes":false,"allow_deletions":false}' ;;
-  *) echo "unsupported branch: $BRANCH"; exit 1 ;;
-esac
-
-curl -s -X PUT \
-  -H "Authorization: token $GH_TOKEN" \
-  -H "Accept: application/vnd.github+json" \
-  "https://api.github.com/repos/$REPO/branches/$BRANCH/protection" \
-  -d "$PAYLOAD" | python -m json.tool
-```
-
-> 脚本需要 PAT 含 `repo` scope。
-> 首次为 release 分支添加保护前,先确认 release 分支已 merge 进 master(否则锁住后无法修复)。
-
-### 7.6 新增:Orphan Branch Cleanup SOP
+#### 7.6 新增:Orphan Branch Cleanup SOP
 
 > **本节为 v2.0.7 发布后新增的强制性 SOP**。所有 release 完成后必须执行。
 
@@ -476,18 +449,19 @@ GitHub 仓库初始化时会自动创建一个默认分支(2020 年 10 月后为
 #### 7.6.2 发布完成后 30 分钟内执行清单
 
 ```powershell
-# Step 1:确认 orphan 默认分支存在性
 git ls-remote origin 'refs/heads/main' 'refs/heads/master'
 # 期望:main 不存在(若存在 → orphan),master 必须存在
+```
 
-# Step 2:如果 main 存在且是默认分支 → 必须先切换默认分支才能删除
+```powershell
 $payload = @{ default_branch = "master" } | ConvertTo-Json -Compress
 $payload | Set-Content -Path $env:TEMP\gh_default_branch.json -Encoding UTF8 -NoNewline
 curl -s -X PATCH -H "Authorization: token $env:GH_TOKEN" -H "Content-Type: application/json" `
   --data-binary "@$env:TEMP\gh_default_branch.json" `
   https://api.github.com/repos/colbertlee/langChain_langGraph -w "HTTP %{http_code}\n"
+```
 
-# Step 3:删除 orphan main
+```powershell
 curl -s -X DELETE -H "Authorization: token $env:GH_TOKEN" `
   https://api.github.com/repos/colbertlee/langChain_langGraph/git/refs/heads/main `
   -w "HTTP %{http_code}\n"
@@ -503,15 +477,6 @@ PR merge 完成后,head 分支(例如 `release/v2.0.7-cleanup-verified`)的处�
 | 一次性 milestone release(cleanup-verified 等) | 保留 2 周用于 audit,然后删 |
 | 长期支持的 release 分支(后续 hotfix 用) | 转 protected branch(见 §7.5.3) |
 | 测试中发现的 stale 分支 | 立即删除 |
-
-```powershell
-# 保留 audit 窗口(2 周)后,执行:
-git push origin --delete release/vX.Y.Z-cleanup-verified
-
-# 本地同步
-git remote set-head origin -d
-git fetch --prune origin
-```
 
 #### 7.6.4 自动化校验(发布 PR 模板自检)
 
@@ -532,9 +497,9 @@ git fetch --prune origin
 - §7.1 是**通用** orphan 分支清理规则(适用于所有阶段)
 - §7.6 是**发布后**强制的清理清单(§7.1 的发布特化版)
 - 两者**不可替代**:即使你按 §7.1 删除了所有 orphan,如果跳过了 §7.6
-  的"切换默认分支"步骤,你会无法删除 orphan `main`(`422 Cannot delete the default branch`)
+  的“切换默认分支”步骤,你会无法删除 orphan `main`(`422 Cannot delete the default branch`)
 
-### 7.7 release CI + webhook 子命令
+### 7.7 新增:release CI + webhook 子命令(v2.0.9 落地)
 
 #### 7.7.1 tag push → build → release CI
 
@@ -600,16 +565,16 @@ python scripts/release/release_cli.py webhook \
 ### Q2. tag 和 release 哪个优先?
 
 **tag 优先**。release 是 tag 的可视化展示,GitHub 内部以 tag 为锚点。
-**禁止**直接通过 release UI 编辑 `target_commitish` 来"重定向" tag。
+**禁止**直接通过 release UI 编辑 `target_commitish` 来“重定向” tag。
 
 ### Q3. 发布失败可以回滚 tag 吗?
 
 可以删除本地 + 远端 tag,但 GitHub Release **不可删除**(只能 mark as draft)。
-正确的"回滚"姿势:
+正确的“回滚”姿势:
 
 1. 标记 Release 为 draft
 2. 删除 tag
-3. 修复后重新打 tag 并发布新的 release,带说明文字"supersedes <old tag>"
+3. 修复后重新打 tag 并发布新的 release,带说明文字“supersedes <old tag>”
 
 ### Q4. 本地 backup 分支(`chore/xxx-backup`)何时删?
 
@@ -618,14 +583,13 @@ python scripts/release/release_cli.py webhook \
 ### Q5. `release/vX.Y.Z*` 分支 merge 后 GitHub 还会保留多久?
 
 永久保留,直到你显式 `git push origin --delete` 或在 GitHub UI 关闭 PR 的
-"Kepp this branch" 复选框。建议按 §7.6.3 处理。
+“Kepp this branch” 复选框。建议按 §7.6.3 处理。
 
 ---
 
 ## 附录 A:常用命令速查
 
 ```powershell
-# 完整 release 流程(从 clean working tree 开始)
 git fetch origin master
 git rebase origin/master                       # 若分叉
 git tag -a vX.Y.Z -m "release: vX.Y.Z"
@@ -643,4 +607,5 @@ gh release view vX.Y.Z --json tagName,targetCommitish
 
 | 日期 | 版本 | 变更 |
 |---|---|---|
+| 2026-09-04 | v2.0.9 | 同步 Harness + v2.0 slim + release CI workflow;补充 release.yml / pr-merge-label.yml 引用 |
 | 2026-09-03 | v2.0.7 | 首次发布本文件(此前 commit message 提及但文件未创建);新增 §7.5 分支保护、§7.6 orphan cleanup SOP |

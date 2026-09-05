@@ -1,9 +1,8 @@
 [project]
 name = "ai-agent"
-version = "2.0.8"
+version = "2.0.9"
 description = "AI Agent 后端服务（LangChain + LangGraph + MCP）"
 requires-python = ">=3.11"
-# PEP 621 项目元数据
 authors = [{ name = "Colbert Lee", email = "colbert@example.com" }]
 license = { text = "MIT" }
 readme = "README.md"
@@ -27,16 +26,9 @@ dev = [
     "ruff>=0.3",
     "mypy>=1.8",
     "ipython>=8.20",
-    "argcomplete>=3.1",   # shell completion（可选）
+    "argcomplete>=3.1",
 ]
 
-# ─────────────── CLI 命令 ───────────────
-# 安装后（pip install -e .）会创建以下命令：
-#   ai-agent              # 主命令：启动 Web 服务
-#   ai-agent-server       # 同上别名
-#   ai-agent-test         # 跑测试
-#   ai-agent-lint         # 跑 ruff lint
-#   ai-agent-format       # 自动格式化代码
 [project.scripts]
 ai-agent = "web_ui:run"
 ai-agent-server = "web_ui:run"
@@ -44,8 +36,6 @@ ai-agent-test = "cli:test"
 ai-agent-lint = "cli:lint"
 ai-agent-format = "cli:format"
 
-# ─────────────── PyPI 项目链接（PEP 753） ───────────────
-# 在 PyPI 项目页右侧显示这些链接
 [project.urls]
 Homepage = "https://github.com/colbertlee/langChain_langGraph"
 Repository = "https://github.com/colbertlee/langChain_langGraph.git"
@@ -57,14 +47,11 @@ Releases = "https://github.com/colbertlee/langChain_langGraph/releases"
 Funding = "https://github.com/sponsors/colbertlee"
 Docker = "https://github.com/colbertlee/langChain_langGraph/pkgs/container/ai-agent-console"
 
-# ─────────────── 构建系统 ───────────────
 [build-system]
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-# 扁平布局：所有 .py 文件属于同一个包 ai_agent
-# 不需要 __init__.py
 py-modules = [
     "web_ui", "agent", "tools", "security", "config",
     "memory", "memory_store", "state_manager",
@@ -80,55 +67,26 @@ py-modules = [
     "pub_sub_scenarios", "capability", "planner",
     "ab_testing", "adaptive_threshold", "multimodal",
     "sqlite_tools", "main", "cli",
+    "harness", "harness_runner", "harness_storage", "harness_cli", "harness_observability",
 ]
 
 [tool.setuptools.package-dir]
 "" = "."
 
-# 包含 README 作为包元数据
 [tool.setuptools.package-data]
 "*" = ["*.md", "*.json", "*.txt", "*.yml", "*.yaml", "*.toml"]
 
-# ─────────────── 自动版本号管理 ───────────────
-# 用法：
-#   pip install bumpversion
-#   bumpversion patch        # 0.1.0 → 0.1.1
-#   bumpversion minor        # 0.1.0 → 0.2.0
-#   bumpversion major        # 0.1.0 → 1.0.0
-#   bumpversion --dry-run --verbose patch   # 试运行
-# 自动 commit + tag（用 -c "git commit -a -m 'bump version {new_version}'"）
 [tool.bumpversion]
-current_version = "0.1.0"
+current_version = "2.0.9"
 parse = "(?P<major>\\d+)\\.(?P<minor>\\d+)\\.(?P<patch>\\d+)"
 serialize = ["{major}.{minor}.{patch}"]
-# 是否允许 dirty working tree
 allow_dirty = false
 
-# 同时改这些文件中的版本号
 [[tool.bumpversion.files]]
 filename = "pyproject.toml"
 search = 'version = "{current_version}"'
 replace = 'version = "{new_version}"'
 
-[[tool.bumpversion.files]]
-filename = "README.md"
-search = '![Coverage](./coverage-badge.svg)'
-replace = '![Coverage](./coverage-badge.svg)\n\n> 当前版本：v{new_version}'
-
-[[tool.bumpversion.files]]
-filename = "CHANGELOG.md"
-search = '<!-- bumpversion placeholder -->'
-replace = '<!-- bumpversion placeholder -->\n## v{new_version} ({now:%Y-%m-%d})\n\n- TODO: 写更新日志\n\n'
-
-[tool.bumpversion.bump_message]
-commit_message = "chore(release): bump version v{new_version}"
-tag_name = "v{new_version}"
-tag_message = "Release v{new_version}"
-
-# ─────────────── pytest-timeout 默认超时 ───────────────
-# 防止测试 hang 死（CI runner 锁死）
-# 1. 默认 60 秒超时（-m "not slow"）
-# 2. slow 测试放宽到 600 秒
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
@@ -138,11 +96,6 @@ addopts = [
     "-ra",
     "--strict-markers",
     "--tb=short",
-    "--cov=ai_agent",
-    "--cov-report=term-missing",
-    "--cov-report=html:htmlcov",
-    "--cov-report=xml:coverage.xml",
-    "--cov-fail-under=20",   # 渐进式提升
     "-m", "not slow and not integration",
 ]
 markers = [
@@ -151,134 +104,38 @@ markers = [
     "slow: 慢测试（>2s）",
     "legacy: 遗留测试（从根目录迁移来）",
 ]
-asyncio_mode = "auto"   # pytest-asyncio 自动 await
+asyncio_mode = "auto"
 filterwarnings = [
     "ignore::DeprecationWarning:langchain.*",
     "ignore::DeprecationWarning:langchain_community.*",
 ]
 
-# ─────────────── python-semantic-release 配置（替代 bumpversion） ───────────────
-# 装：`pip install python-semantic-release[all]`
-# 用法：`semantic-release publish` 或 `semantic-release version`
-# 自动：
-#   1. 解析 commit message（Conventional Commits）
-#   2. 计算 next version（feat → minor, fix → patch, BREAKING CHANGE → major）
-#   3. 更新 pyproject.toml version
-#   4. 生成 CHANGELOG.md
-#   5. git commit + tag
-#   6. （可选）publish 到 PyPI
-#   7. （可选）创建 GitHub Release
-#
-# 与 bumpversion 对比：
-#   - bumpversion：手动 `bumpversion patch/minor/major`，简单直接
-#   - semantic-release：自动从 commit message 计算，更智能（推荐 commit 规范后用）
-#
-# 两者可同时存在，按需选择。当前用 bumpversion 即可。
-[tool.semantic_release]
-# 版本字符串格式
-version_variable = "pyproject.toml:project.version"   # 用 pyproject.toml 而非 __init__.py
-# major_on_zero = true   # 0.x.y 中破坏性变更 → bump major（否则 bump minor）
-branch = "main"             # 主分支
-upload_to_pypi = false      # 不自动 PyPI（用 release.yml workflow 配 trusted publishing）
-upload_to_release = false   # 不自动 GitHub Release（用 release.yml）
-hvcs = "github"             # GitHub 集成
-commit_version_number = true
-tag_commit = true
-# commit message 格式
-commit_message = "chore(release): v{version} [skip ci]\n\nAutomatically generated by semantic-release"
-# CHANGELOG 配置
-changelog_file = "CHANGELOG.md"
-changelog_omit_zero_versions = true
-# ─────────────── 防 main 分支冲突配置 ───────────────
-# 用 commit_author + push-mode 配置回退分支
-commit_author = "github-actions[bot] <github-actions[bot]@users.noreply.github.com>"
-# push 模式：先 commit 到 release 分支，merge 到 main（防止 force-push main）
-push_mode = "tag"  # 只 push tag，不直接 force-push main
-# 备选 push_mode:
-#   - "tag"（推荐）：只 push tag，由外部流程（release.yml）触发 publish
-#   - "branch"：force-push main（不安全）
-#   - "follow"：跟随 commit
-# 在 CI 上用 PAT_BOT 时，仍需要 write 权限
-
-[tool.semantic_release.commit_parser_options]
-# conventional commit 解析
-allowed_types = ["feat", "fix", "perf", "refactor", "docs", "test", "chore", "ci", "build", "style"]
-# feat → minor, fix → patch, BREAKING CHANGE → major
-
-[tool.semantic_release.changelog_generator_options]
-# changelog 模板
-template = """\
-# Changelog
-
-AI Agent 项目更新记录。
-
-{% for version, grouped_commits in versions.items() %}
-## v{{ version }} ({{ grouped_commits[0].commit.hexsha[:7] }} - {{ grouped_commits[0].commit.committer.date.strftime("%Y-%m-%d") }})
-
-{% for type, commits in grouped_commits | groupby("type") -%}
-### {{ type | title }}
-
-{% for commit in commits -%}
-- {{ commit.subject.rstrip() }} ({{ commit.commit.hexsha[:7] }})
-{% endfor %}
-{% endfor %}
-{% endfor %}\
-"""
-
 [tool.ruff]
 line-length = 120
 target-version = "py311"
-# 排除业务代码里的大量中文 docstring 全角字符（避免噪音）
-# 注意：新增文件请保留中文 docstring（用半角字符）
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM", "RUF"]
 ignore = [
-    "E501",   # line-too-long（line-length=120 仍可能误报，ref 字符串常用）
-    "B008",   # do not perform function calls in argument defaults（FastAPI Depends 模式）
-    "RUF002", # ambiguous characters in docstring（中文 docstring 不可避免）
-    "RUF003", # ambiguous characters in comment
-    "UP032",  # 使用 f-string 而不是 format()（遗留代码兼容）
+    "E501",
+    "B008",
+    "RUF002",
+    "RUF003",
+    "UP032",
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# 测试文件可以长、未使用导入等
 "tests/**/*.py" = ["F401", "F811", "B011"]
-# cli.py 是脚本入口，允许 any
 "cli.py" = ["F401"]
 
 [tool.ruff.format]
-# 配套格式化规则（用于 ai-agent-format）
 quote-style = "double"
 indent-style = "space"
 line-ending = "lf"
 skip-magic-trailing-comma = false
-docstring-code-format = true
-docstring-code-line-length = 100
 
 [tool.mypy]
 python_version = "3.11"
 ignore_missing_imports = true
 disallow_untyped_defs = false
 warn_unused_ignores = true
-
-[tool.coverage.run]
-source = ["."]
-omit = [
-    "tests/*",
-    "test_*.py",
-    "htmlcov/*",
-    "uploads/*",
-    "knowledge_base/*",
-    "docs/*",
-    "web/*",
-]
-
-[tool.coverage.report]
-exclude_lines = [
-    "pragma: no cover",
-    "if __name__ == .__main__.:",
-    "raise NotImplementedError",
-    "pass",
-    "except ImportError:",
-]

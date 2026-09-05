@@ -28,3 +28,18 @@ Thumbs.db
 
 # Charts (generated)
 chart_*.png
+
+# Diagnostic scripts / probe artifacts (v2.0.9)
+_diag_*.py
+local.jsonl
+acc.txt
+bm.txt
+probe-out.txt
+verify-out.txt
+wsl_*.txt
+
+# Historical test runs archive (v2.0.9)
+tests-archive/
+
+# Runtime logs (v2.0.9)
+logs/
