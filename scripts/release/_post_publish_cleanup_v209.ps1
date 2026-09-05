@@ -17,7 +17,25 @@ param()
 $ErrorActionPreference = "Stop"
 
 Write-Host "== [1/4] git fetch origin" -ForegroundColor Cyan
-git fetch origin
+$fetchOutput = git fetch origin 2>&1
+if ($LASTEXITCODE -ne 0) {
+    Write-Error @"
+
+❌ git fetch origin 失败(网络/沙盒屏蔽 github.com:443)。
+❌ 严禁在 fetch 失败后跑 'git reset --hard origin/master' ——
+   origin/master 引用是陈旧的,会把本地 HEAD 强制回退到旧 commit,
+   丢失所有本地未推送的 commit(本会话已踩 2 次)。
+
+请:
+  1. 解除沙盒限制 / 换网络环境(VPN / 手机热点 / 直连)
+  2. 再跑此脚本
+  3. 或 Web UI 上手动清理:https://github.com/colbertlee/langChain_langGraph/branches
+
+fetch 错误详情:
+$fetchOutput
+"@
+    exit 4
+}
 
 Write-Host "== [2/4] 重置本地 master → origin/master" -ForegroundColor Cyan
 $status = git status --porcelain
