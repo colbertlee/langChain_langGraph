@@ -118,16 +118,15 @@ ai_agent/
 ├── harness_storage.py           # 落盘 evals/runs/<ts>/{cases,summary,metrics}.json
 ├── harness_cli.py               # harness run/dry-run CLI 入口
 ├── harness_observability.py     # Trace → observability 落盘回环
-├── v2_slim/                     # v2.0 slim runtime(默认启用;LEGACY_MODE 切回)
+├── v2_slim/                     # v2.0 slim runtime(v2.10+ 强制启用，LEGACY 路径已删除)
 │   ├── tools_v2.py              # 6 个复合 @tool(subcommand Literal)
 │   ├── memory_store_v2.py       # ShortTermContext + LongTermKnowledge
 │   ├── multi_agent_v2.py        # 仅 SEQUENTIAL + SUPERVISOR
-│   ├── multi_agent_router.py    # LEGACY_MODE 路由统一门面
+│   ├── multi_agent_router.py    # multi_agent 统一入口（v2 slim only）
 │   ├── approval.py              # ApprovalGate + RBAC Policy
 │   ├── telemetry.py             # 合并 observability + monitor + json_log
 │   ├── frozen.py                # @frozen("name")() → NotImplementedError
-│   ├── frozen_modules.py        # frozen 名称注册表
-│   └── *_legacy.py              # LEGACY 兜底实现
+│   └── frozen_modules.py        # frozen 名称注册表
 ├── # ───────── 辅助模块 ─────────
 ├── ab_testing.py                # A/B 测试框架
 ├── adaptive_threshold.py        # 自适应阈值
@@ -164,7 +163,6 @@ ai_agent/
 │   ├── test_security.py / test_basic_endpoints.py / test_upload.py
 │   ├── test_audio_pipeline.py / test_audio_extended.py
 │   ├── test_respx_example.py / test_akshare_respx.py
-│   └── legacy/                  # 历史迁移用例
 │
 ├── # ───────── 文档 ─────────
 ├── docs/

@@ -17,18 +17,20 @@ test.describe('App 基础功能', () => {
     await expect(page.locator('textarea[placeholder*="回车"]')).toBeVisible();
   });
 
-  test('新建会话按钮可点击', async ({ page }) => {
+  test('主题切换按钮工作（深色 ↔ 浅色）', async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByText('新建会话').first()).toBeVisible();
-    const initialUrl = page.url();
-    await page.getByText('新建会话').first().click();
-    // URL 应保持（前端路由）
-    expect(page.url()).toBe(initialUrl);
+    const themeBtn = page.getByRole('button', { name: /切换到(浅色|深色)主题/ }).first();
+    await expect(themeBtn).toBeVisible();
+    const before = await themeBtn.textContent();
+    await themeBtn.click();
+    await page.waitForTimeout(150);
+    const after = await themeBtn.textContent();
+    expect(before).not.toBe(after);
   });
 
-  test('侧栏导航 6 个入口', async ({ page }) => {
+  test('侧栏导航 8 个入口', async ({ page }) => {
     await page.goto('/');
-    for (const label of ['Chat', 'Agents', 'Approval', 'Observability', 'Tools', 'Settings']) {
+    for (const label of ['Chat', 'Agents', 'Approval', 'Observability', 'Tools', 'Settings', 'Prompts', 'Memory']) {
       await expect(page.getByRole('link', { name: label, exact: true }).first()).toBeVisible();
     }
   });
@@ -36,16 +38,19 @@ test.describe('App 基础功能', () => {
   test('点击 Agents 路由切换', async ({ page }) => {
     await page.goto('/');
     await page.getByRole('link', { name: 'Agents', exact: true }).first().click();
-    await expect(page).toHaveURL(/\/agents$/);
-    // 标题栏显示 Agents
-    await expect(page.getByText('多 Agent 集群状态', { exact: false })).toBeVisible();
+    // v2 slim：/agents 兼容重定向到 /admin?tab=agents
+    await expect(page).toHaveURL(/\/admin\?tab=agents$/);
+    // AdminPage 的 tablist 存在，Agents tab 被选中
+    await expect(page.getByRole('tab', { name: 'Agents' })).toHaveAttribute('aria-selected', 'true');
   });
 
   test('点击 Tools 路由切换', async ({ page }) => {
     await page.goto('/');
     await page.getByRole('link', { name: 'Tools', exact: true }).first().click();
-    await expect(page).toHaveURL(/\/tools$/);
-    await expect(page.getByPlaceholder(/搜索工具/)).toBeVisible();
+    // v2 slim：/tools → /admin?tab=tools
+    await expect(page).toHaveURL(/\/admin\?tab=tools$/);
+    // Tools tab 被选中
+    await expect(page.getByRole('tab', { name: 'Tools' })).toHaveAttribute('aria-selected', 'true');
   });
 
   test('深色主题：背景深空黑', async ({ page }) => {

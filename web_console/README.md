@@ -27,7 +27,7 @@ web_console/
 ├─ src/
 │  ├─ components/
 │  │  ├─ assistant-ui/thread.tsx       # 会话流(assistant-ui 适配层)
-│  │  ├─ chat/SessionList.tsx          # 会话侧栏
+│  │  ├─ chat/ModelChip.tsx            # Chat 顶部当前激活模型 chip
 │  │  └─ layout/{AppShell,Sidebar,TopBar}.tsx
 │  ├─ hooks/useAgentThreadListRuntime.ts # 会话列表运行时桥接
 │  ├─ lib/{api,utils,syntaxLanguages,attachmentAdapter,threadListAdapter}.ts
@@ -73,13 +73,73 @@ npm run dev
 # UI 仍可加载,顶部状态指示灯会变红;Chat 页可输入但请求会失败提示。
 ```
 
-### 2.4 构建生产产物
+### 2.4 联调实战(推荐做法)
+
+最常见的问题不是装不上，而是「前端连不上后端」「CORS 报错」「聊天发出去没回声」。下面这套流程能一次到位：
+
+**两个终端，分窗口起：**
+
+```bash
+# 终端 A —— 后端
+cd ai_agent
+python -m uvicorn ai_agent.web_ui:app --port 8000 --reload
+# 看到 "Uvicorn running on http://0.0.0.0:8000" 后不要关
+
+# 终端 B —— 前端
+cd web_console
+npm run dev
+# 打开 http://localhost:5173
+```
+
+**自检 3 件事，按顺序：**
+
+```bash
+# 1. 后端健康（端口 8000 是否活）
+curl http://127.0.0.1:8000/api/health
+# → {"status":"ok",...}
+
+# 2. 前端代理是否通（Vite 把 /api 转发到 :8000）
+# 在浏览器开发者工具 Network 面板，访问任一页面应看到 /api/* 请求 200
+# 或者命令行：curl http://127.0.0.1:5173/api/health
+
+# 3. LLM key 状态（聊天能跑的前提）
+curl http://127.0.0.1:8000/api/api-key/status
+# → configured_providers 至少有一家为 true
+```
+
+**端口冲突排查：**
+
+| 症状 | 原因 | 修法 |
+|---|---|---|
+| 5173 被占 | 旧 Vite 没退出 | `Get-Process -Name node \| Stop-Process` |
+| 8000 被占 | 别的服务占了 | 改用 `--port 8001`，并同步改 `vite.config.ts` 的 `proxy.target` |
+| 浏览器报 CORS | 没用 Vite 代理而直接打 :8000 | 保持用 `http://localhost:5173` 入口，不要直接打开 :8000 |
+
+**真实 API 冒烟（手动）：**
+
+```bash
+# 在 ai_agent/ 目录内
+export DEEPSEEK_API_KEY=sk-...   # 任选一家
+python scripts/real_api_smoke.py
+# → 3 段 PASS/FAIL（hello + 工具直调 + 流式事件），artifact 落到 evals/runs/<ts>_real_smoke/
+# 不跑 LLM（仅验证工具）：python scripts/real_api_smoke.py --skip-agent
+```
+
+**Playwright E2E（真打开浏览器看 UI）：**
+
+```bash
+npm run e2e:install    # 首次：装 Chromium
+npm run e2e            # 自动起 vite dev + 跑 9 个用例（无需手动 npm run dev）
+npm run e2e:headed     # 想看真实浏览器窗口跑（debug 用）
+```
+
+### 2.5 构建生产产物
 ```bash
 npm run build               # 输出 dist/ ,由 Dockerfile frontend-builder 阶段消费
 npm run preview             # 静态预览
 ```
 
-### 2.5 单元 / E2E 测试
+### 2.6 单元 / E2E 测试
 ```bash
 npm test                    # vitest 单元测试
 npm run test:coverage       # + coverage

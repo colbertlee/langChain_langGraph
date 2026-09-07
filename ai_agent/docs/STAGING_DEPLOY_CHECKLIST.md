@@ -19,7 +19,6 @@
 | P1 老测试 security/tools/prompts | 250 | - | ✅ |
 | 其他 agent/multi_agent/stream_events | 240 | - | ✅ |
 | test_app_e2e（独立脚本） | 53 | - | ✅ |
-| tests/legacy | 280 (skipped) | - | - |
 
 ---
 
@@ -192,59 +191,20 @@ nohup scripts/staging_monitor_loop.sh &
 
 ## 24h 稳定后：P2 任务（删除 _legacy 模块）
 
-### P2.1 移除 LEGACY 兜底
-
-删除以下文件：
-- `v2_slim/tools_legacy.py`
-- `v2_slim/memory_store_legacy.py`
-- `v2_slim/multi_agent_legacy.py`
-- `v2_slim/permission_legacy.py`
-- `v2_slim/human_in_loop_legacy.py`
-- `v2_slim/observability_legacy.py`
-- `v2_slim/negotiation_legacy.py`
-- `v2_slim/frozen_modules.py`
-
-### P2.2 关闭 LEGACY_MODE 真回滚
-
-修改 `config.py`：
-```python
-# 旧
-LEGACY_MODE = os.getenv("AIAgent_LEGACY", "false").lower() == "true"
-
-# 新（仅作为占位，强制走 v2）
-LEGACY_MODE = False  # v2 slim 强制启用；保留开关仅为兼容外部监控
-```
-
-修改 `agent.py`：
-```python
-def _resolve_tools():
-    # 旧：LEGACY_MODE 时 import 老 tools，新：始终走 v2
-    from v2_slim.tools_v2 import get_all_tools_v2
-    return get_all_tools_v2()
-```
-
-### P2.3 删除 LEGACY 测试
-
-- `tests/test_v2_slim_legacy_switch.py`
-
-### P2.4 关闭 staging 探针 cron
-
-```bash
-pkill -f staging_monitor_loop.sh
-```
-
-### P2.5 发布 v2.0.0
-
-```bash
-git tag v2.0.0
-git push --tags
-```
+> **✅ 已完成（v2.10+）**：以下清理在 v2.10 起落地，与本部署清单同步。
+>
+> - 7 个 `v2_slim/*_legacy.py` 已删除（保留 `frozen_modules.py` 占位仍生效）
+> - `agent.py` / `api.py` / `multi_agent_router.py` 的 LEGACY_MODE 分支已删除，统一走 v2 slim
+> - `config.LEGACY_MODE` 已改为常量 `False`（env 变量 `AIAgent_LEGACY` 不再读取）
+> - `tests/test_v2_slim_legacy_switch.py` 整个文件已删除
+> - `tests/test_v2_slim_consistency.py` / `test_v2_slim_tools.py` / `test_staging_monitor.py` 中相关测试已重写
+>
+> 见 release notes `v2.0.10`（待发布）。
 
 ---
 
 ## 已知遗留（与 v2 重构无关）
 
-- `tests/legacy/test_observability.py` 等：触发老 multi_agent auction 死锁，已在 `tests/legacy/conftest.py` 默认跳过（`RUN_LEGACY_TESTS=1` 启用）
 - `app.py` 中 `enable_permission_enforcement` 修复后不再触发 `message_bus`（避免测试环境死锁）；生产环境的 message_bus 行为保持原状
 - `web_ui.py` 的 SSE 端点改用 `agent.run()` 同步 fallback（牺牲流式体验换取稳定性）；后续可优化为 async + 真流式
 
@@ -255,4 +215,4 @@ git push --tags
 发现问题请：
 - 探针失败 → 看 `staging-XXX.xml` + `probe.log`
 - 提 issue：`tests/test_staging_monitor.py::test_xxx 失败`
-- 回滚：`export AIAgent_LEGACY=true`（P2 之前有效；P2 后移除）
+- 回滚：v2.10+ 不支持 LEGACY_MODE 切换；如需回退请 `git revert` 清理 commit

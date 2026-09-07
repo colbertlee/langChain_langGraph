@@ -4,6 +4,65 @@
 
 ---
 
+## [v2.0.10] - 2026-09-07
+
+**类型**: Cleanup · **SemVer**: PATCH (含 1 个 BREAKING)
+**Release Notes**: [release_notes/v2.0.10.md](release_notes/v2.0.10.md)
+**SOP**: [docs/VERSION_MANAGEMENT.md](docs/VERSION_MANAGEMENT.md)
+
+### ⚠️ BREAKING CHANGES
+
+- **`AIAgent_LEGACY` 环境变量从 v2.0.10 起完全无效**。`config.LEGACY_MODE` 改为常量 `False`（不再读取 env），`v2_slim/*_legacy.py` 共 7 个文件已物理删除。如有运维脚本设置了 `AIAgent_LEGACY=true`，请删除该配置。回滚需 `git revert` 本次清理 commit。详见 [release_notes/v2.0.10.md §Breaking Changes](release_notes/v2.0.10.md#-breaking-changes)。
+
+### Removed
+
+- **7 个 `v2_slim/*_legacy.py` 模块**：`tools_legacy.py` / `memory_store_legacy.py` / `multi_agent_legacy.py` / `permission_legacy.py` / `human_in_loop_legacy.py` / `observability_legacy.py` / `negotiation_legacy.py`。
+- **`config.LEGACY_MODE` 真回滚分支**（`agent.py` / `api.py` / `v2_slim/multi_agent_router.py` 三处的 `if LEGACY_MODE` 块）。
+- **`v2_slim/multi_agent_router.py`** 的 `get_orchestrator()` / `reset_orchestrator()` 入口（仅 LEGACY 路径用）。
+- **`tests/test_v2_slim_legacy_switch.py`** 整个文件（8 个 LEGACY 双路测试）。
+- **前端死代码**：`web_console/src/pages/Chat.tsx`（老 assistant-ui runtime v1 页）+ `components/chat/SessionList.tsx` + `SessionList.test.tsx`。
+- **调试一次性脚本**（共 57 个 .py + 数据/日志产物）：
+  - `ai_agent/tests/legacy/` 整个目录（26 个历史 skip 测试）
+  - `ai_agent/scripts/legacy_tests/` 整个目录（10 个旧测试脚本）
+  - 顶层 `diag_*.py` × 14 + `_diag_*.py` × 5
+  - 顶层 `_chart_*.png` × 8 + `_chart_raw.txt` / `_e2e_out.txt` / `_e2e_regression.py` / `_dataflow.py` / `_demo.txt` / `_products.json` / `_sales.csv`
+  - 顶层调试 `test_*.py` × 15（`test_chart_*.py` / `test_sse*.py` / `test_tools*.py` / `test_endpoints.py` / `test_data.py` / `test_minimax_direct.py` / `test_fileops_code.py`）
+  - `scripts/add-slow-markers.py`（已 no-op）
+
+### Added
+
+- **`ai_agent/scripts/real_api_smoke.py`** — 真实 LLM provider 冒烟脚本（manual-only，3 段 PASS/FAIL：hello + 工具直调 + 流式事件，artifact 落到 `evals/runs/<ts>_real_smoke/`）。
+- **`ai_agent/.gitignore`** 新增 13 条规则覆盖上述调试产物与一次性脚本，防止同类积累。
+
+### Changed
+
+- **`ai_agent/agent.py`** — `_resolve_tools()` / `_resolve_memory_store()` 固定为 v2 slim；`__init__` 改用 `_resolve_tools()` 取代已删的 `get_all_tools()`。
+- **`ai_agent/api.py`** — `_resolve_monitor()` 固定走 `v2_slim.telemetry`；删除 LEGACY_MODE telemetry 分支。
+- **`ai_agent/v2_slim/multi_agent_router.py`** — 简化为 v2 slim only 入口；删除 LEGACY 入口函数。
+- **`ai_agent/v2_slim/frozen.py` / `frozen_modules.py`** — 注释更新（去除 LEGACY_MODE 恢复误导）。
+- **`ai_agent/tests/test_v2_slim_consistency.py`** — `test_legacy_mode_respects_env` 改写为 `test_legacy_env_var_is_ignored`（验证 env 被忽略）。
+- **`ai_agent/tests/test_staging_monitor.py`** — 删 `test_legacy_modules_importable`，保留 frozen 测试。
+- **`ai_agent/tests/test_v2_slim_tools.py`** — `test_legacy_modules_importable` 改写为 `test_v2_slim_modules_importable`。
+- **`web_console/e2e/app.spec.ts`** — 修复 3 处过期断言：路由从 `/agents /tools` → `/admin?tab=xxx`、侧栏入口 6 → 8、"新建会话" → 主题切换按钮（v2 ChatPage 已不用 SessionList）。
+- **`web_console/README.md`** §2.4 — 新增「联调实战」段（3 步自检 + 端口冲突表 + Playwright/real_api_smoke 命令速查）。
+- **`docs/DIRECTORY_STRUCTURE.md`** — 删除 `legacy_tests/` 条目与 `add-slow-markers.py` 条目。
+- **`ai_agent/docs/STAGING_DEPLOY_CHECKLIST.md`** — P2.1-P2.5 段标为「✅ 已完成（v2.10+）」。
+- **`ai_agent/docs/STAGING_MONITORING.md`** — P2 任务清单标完成，回滚说明改为 `git revert`。
+- **`ai_agent/README.md`** — `v2_slim/` 树注释去掉 `_legacy.py` 一行。
+- **`ai_agent/scripts/migrate_memory_v1_to_v2.py`** — 完成日志「设置 env=false」改为「v2.10+ 无需切换」。
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `pytest tests/ --collect-only` | 633/635 collected (2 deselected, 0 errors) |
+| `pytest tests/{core,security,permission,skills,app_e2e,v2_slim*,staging}` | 219 passed in 47.47s |
+| `npx playwright test e2e/app.spec.ts` | 9 passed in 17.5s |
+| `npx vitest run` (web_console) | 37 passed (7 files) |
+| `python scripts/real_api_smoke.py --skip-agent` | tools PASS in 54ms |
+
+---
+
 ## [v2.0.9] - 2026-09-04
 
 **类型**: Capability · **SemVer**: PATCH

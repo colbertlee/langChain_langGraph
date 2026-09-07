@@ -80,10 +80,11 @@ done
 
 部署后 24h 内探针全部通过（0 failure），可执行：
 
-1. **可选地移除 `_legacy` 模块**（P2 任务）：
-   - 删除 `v2_slim/tools_legacy.py / memory_store_legacy.py / multi_agent_legacy.py / *_legacy.py / negotiation_legacy.py`
-   - 移除 `config.LEGACY_MODE` 开关的"真回滚"分支（保留开关但改为 always v2）
-   - 删除 `tests/test_v2_slim_legacy_switch.py`
+1. **~~可选地移除 `_legacy` 模块（P2 任务）~~** ✅ **已完成（v2.10+）**
+   - 7 个 `v2_slim/*_legacy.py` 已删除
+   - `config.LEGACY_MODE` 已改为常量 `False`（env `AIAgent_LEGACY` 不再读取）
+   - `tests/test_v2_slim_legacy_switch.py` 已删除
+   - 见 release notes v2.0.10
 
 2. **关闭 staging 探针 cron**
 
@@ -101,4 +102,4 @@ done
 发现问题请：
 - 提 issue：`tests/test_staging_monitor.py::test_xxx 失败`
 - 检查 v2 slim 文档：`docs/V2_SLIM.md`
-- 回滚：`export AIAgent_LEGACY=true` 走老实现
+- 回滚：v2.10+ 不支持 LEGACY_MODE 切换；如需回退请 `git revert` v2.0.10 清理 commit

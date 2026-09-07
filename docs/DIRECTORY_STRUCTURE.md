@@ -77,7 +77,7 @@ ai_agent/
 ├── knowledge_base/        # 内置 RAG 文档
 ├── package/               # 桌面包产物(Win / Linux / macOS)
 ├── prompts/               # User Prompt 模板
-├── scripts/               # 脚本(legacy_tests / dry-run)
+├── scripts/               # 脚本(dry-run / staging_monitor / 迁移 / 真实 API 冒烟)
 ├── tests/                 # pytest 全量测试
 ├── web/                   # 单文件 HTML 主界面
 ├── *.py                   # ~50 个 Python 模块
@@ -256,7 +256,6 @@ ai_agent/
 #### `ai_agent/scripts/`
 | 文件 | 用途 |
 |---|---|
-| `legacy_tests/test_*.py` | 旧版测试脚本(已弃用) |
 | `dry-run-release.py` | 发布预演 |
 
 #### `ai_agent/prompts/`
@@ -309,7 +308,6 @@ ai_agent/
 
 | 文件 | 用途 |
 |---|---|
-| `add-slow-markers.py` | 给慢测试打 `@pytest.mark.slow` 标记 |
 | `validate-compose.py` | docker-compose.yml 校验 |
 
 ---
