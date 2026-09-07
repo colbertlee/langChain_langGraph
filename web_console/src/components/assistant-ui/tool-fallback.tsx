@@ -27,7 +27,7 @@ export const ToolCallCard: FC<ToolFallbackProps> = ({ toolName, args, result, st
       : 'text-[var(--success)]';
 
   return (
-    <div className="relative my-2 rounded-[10px] overflow-hidden border border-[var(--border)] bg-[rgba(255,255,255,0.02)]">
+    <div className="relative my-2 rounded-[10px] overflow-hidden border border-[var(--border)] bg-[var(--code-bg-card)]">
       <div
         className="absolute left-0 top-0 bottom-0 w-[2px]"
         style={{
@@ -48,7 +48,7 @@ export const ToolCallCard: FC<ToolFallbackProps> = ({ toolName, args, result, st
         {open ? <ChevronDown className="w-3.5 h-3.5 text-fg2" /> : <ChevronRight className="w-3.5 h-3.5 text-fg2" />}
       </button>
       {open && (
-        <div className="border-t border-[var(--border)] px-3.5 py-3 space-y-3 bg-[rgba(0,0,0,0.2)]">
+        <div className="border-t border-[var(--border)] px-3.5 py-3 space-y-3 bg-[var(--code-bg-panel)]">
           <Block label="Arguments" text={stringify(args)} />
           {result !== undefined && result !== '' && (
             <Block label="Result" text={typeof result === 'string' ? result : stringify(result)} />
@@ -68,13 +68,13 @@ const Block: FC<{ label: string; text: string }> = ({ label, text }) => (
           e.stopPropagation();
           navigator.clipboard.writeText(text).catch(() => {});
         }}
-        className="p-1 rounded text-fg2 hover:text-fg0 hover:bg-white/5"
+        className="p-1 rounded text-fg2 hover:text-fg0 hover:bg-[color-mix(in_srgb,var(--fg-0)_8%,transparent)]"
         title="复制"
       >
         <Copy className="w-3 h-3" />
       </button>
     </div>
-    <pre className="font-mono text-[11.5px] text-fg1 bg-[rgba(0,0,0,0.4)] rounded-md p-2.5 overflow-x-auto max-h-64 whitespace-pre-wrap break-all">
+    <pre className="font-mono text-[11.5px] text-fg1 bg-[var(--code-bg)] rounded-md p-2.5 overflow-x-auto max-h-64 whitespace-pre-wrap break-all">
       {text}
     </pre>
   </div>

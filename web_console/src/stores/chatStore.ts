@@ -20,6 +20,7 @@ interface ChatState {
   addAttachment: (sessionId: string, att: PersistedAttachment) => void;
   removeAttachment: (sessionId: string, attId: string) => void;
   setStreaming: (s: boolean) => void;
+  removeMessage: (sessionId: string, id: string) => void;
   clearAll: () => void;
 }
 
@@ -106,13 +107,20 @@ export const useChatStore = create<ChatState>()(
             },
           };
         }),
-      updateMessage: (sessionId, id, patch) =>
+      updateMessage: (sessionId: string, id: string, patch: Partial<ChatMessage>) =>
         set((st) => ({
           messages: {
             ...st.messages,
             [sessionId]: (st.messages[sessionId] ?? []).map((m) =>
               m.id === id ? { ...m, ...patch } : m,
             ),
+          },
+        })),
+      removeMessage: (sessionId: string, id: string) =>
+        set((st) => ({
+          messages: {
+            ...st.messages,
+            [sessionId]: (st.messages[sessionId] ?? []).filter((m) => m.id !== id),
           },
         })),
       addAttachment: (sessionId, att) =>

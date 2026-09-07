@@ -83,7 +83,7 @@ export function Approval() {
                     </div>
                     <div className="text-[13px] text-fg1 mb-2">{p.reason}</div>
                     {p.args && (
-                      <pre className="font-mono text-[11.5px] text-fg1 bg-[rgba(0,0,0,0.4)] rounded-md p-2.5 overflow-x-auto">
+                      <pre className="font-mono text-[11.5px] text-fg1 bg-[var(--code-bg)] rounded-md p-2.5 overflow-x-auto">
                         {JSON.stringify(p.args, null, 2)}
                       </pre>
                     )}

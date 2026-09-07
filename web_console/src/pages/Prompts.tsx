@@ -261,21 +261,21 @@ export function Prompts() {
             <div className="flex gap-2">
               <button
                 onClick={refresh}
-                className="h-8 px-3 rounded-[8px] border border-[var(--border)] text-[12px] hover:bg-white/5 flex items-center gap-1"
+                className="h-8 px-3 rounded-[8px] border border-[var(--border)] text-[12px] hover-overlay flex items-center gap-1"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
                 刷新
               </button>
               <button
                 onClick={exportAll}
-                className="h-8 px-3 rounded-[8px] border border-[var(--border)] text-[12px] hover:bg-white/5 flex items-center gap-1"
+                className="h-8 px-3 rounded-[8px] border border-[var(--border)] text-[12px] hover-overlay flex items-center gap-1"
               >
                 <Download className="w-3.5 h-3.5" />
                 导出 User Prompts
               </button>
               <button
                 onClick={importAll}
-                className="h-8 px-3 rounded-[8px] border border-[var(--border)] text-[12px] hover:bg-white/5 flex items-center gap-1"
+                className="h-8 px-3 rounded-[8px] border border-[var(--border)] text-[12px] hover-overlay flex items-center gap-1"
               >
                 <Upload className="w-3.5 h-3.5" />
                 导入
@@ -525,7 +525,7 @@ export function Prompts() {
                       className={`h-8 px-2 rounded-[6px] border text-[11.5px] flex items-center gap-1 ${
                         active
                           ? 'border-cyan-500/40 bg-cyan-500/10 text-cyan-300'
-                          : 'border-[var(--border)] text-fg1 hover:bg-white/5'
+                          : 'border-[var(--border)] text-fg1 hover-overlay'
                       }`}
                       title={active ? '当前激活' : '点击切到该版本'}
                     >

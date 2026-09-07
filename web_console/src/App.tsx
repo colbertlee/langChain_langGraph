@@ -16,6 +16,7 @@
 import { useEffect } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AppShell } from '@/components/layout/AppShell';
+import { ThemeSync } from '@/components/layout/ThemeSync';
 import { ChatPage } from '@/pages/v2/ChatPage';
 import { AdminPage } from '@/pages/v2/AdminPage';
 import { InsightsPage } from '@/pages/v2/InsightsPage';
@@ -45,15 +46,26 @@ export default function App() {
 
   return (
     <AppShell>
+      <ThemeSync />
       <CompatRedirects />
       <Routes>
         <Route path="/" element={<Navigate to="/chat" replace />} />
         <Route path="/chat" element={<ChatPage />} />
         <Route path="/admin" element={<AdminPage />} />
         <Route path="/insights" element={<InsightsPage />} />
-        <Route path="*" element={<Navigate to="/chat" replace />} />
+        <Route path="*" element={<NotFound />} />
       </Routes>
     </AppShell>
+  );
+}
+
+function NotFound() {
+  return (
+    <div className="h-full flex flex-col items-center justify-center text-center px-6">
+      <div className="text-6xl font-bold text-fg2 mb-3">404</div>
+      <div className="text-lg text-fg1 mb-2">页面不存在</div>
+      <a href="/chat" className="btn-primary mt-4">返回 Chat</a>
+    </div>
   );
 }
 

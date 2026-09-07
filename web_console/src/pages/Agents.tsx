@@ -43,11 +43,18 @@ export function Agents() {
   return (
     <div className="h-full overflow-y-auto p-6">
       <div className="max-w-7xl mx-auto">
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 stagger">
-          {agents.map((a) => (
-            <AgentCard key={a.id} agent={a} onClick={() => setSelected(a)} />
-          ))}
-        </div>
+        {agents.length === 0 ? (
+          <div className="card p-8 text-center text-fg2 text-sm">
+            当前没有可用的 Agent / Worker。后端{' '}
+            <code className="font-mono">capability_registry</code> 已注册 0 个 worker。
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 stagger">
+            {agents.map((a) => (
+              <AgentCard key={a.id} agent={a} onClick={() => setSelected(a)} />
+            ))}
+          </div>
+        )}
       </div>
       {selected && <AgentDetail agent={selected} onClose={() => setSelected(null)} />}
     </div>
@@ -165,7 +172,7 @@ function AgentDetail({ agent, onClose }: { agent: Agent; onClose: () => void }) 
         {agent.profile && (
           <>
             <div className="text-xs uppercase tracking-wider text-fg2 mb-2 font-mono">Profile</div>
-            <pre className="font-mono text-[11.5px] text-fg1 bg-[rgba(0,0,0,0.4)] rounded-md p-3 overflow-x-auto max-h-64">
+            <pre className="font-mono text-[11.5px] text-fg1 bg-[var(--code-bg)] rounded-md p-3 overflow-x-auto max-h-64">
               {JSON.stringify(agent.profile, null, 2)}
             </pre>
           </>
@@ -196,6 +203,8 @@ function Stat({
 }
 
 const MOCK_AGENTS: Agent[] = [
+  // 后端不可达时的兜底示例：只列真正属于「Agent 该做的事」的角色。
+  // 删掉了 analyst (etf/chart) / github-bot (github_search/pr) 这些 demo 用途的伪能力。
   {
     id: 'supervisor-01',
     name: 'Supervisor',
@@ -217,17 +226,9 @@ const MOCK_AGENTS: Agent[] = [
     id: 'researcher-01',
     name: 'Researcher',
     status: 'running',
-    capabilities: ['web_search', 'rag', 'summarize'],
+    capabilities: ['rag', 'summarize'],
     load: 78,
     currentTask: 'RAG: knowledge_base/python_intro.txt',
-  },
-  {
-    id: 'analyst-01',
-    name: 'Analyst',
-    status: 'error',
-    capabilities: ['etf', 'chart', 'numeric'],
-    load: 0,
-    profile: { error: 'tool timeout' },
   },
   {
     id: 'reviewer-01',
@@ -235,12 +236,5 @@ const MOCK_AGENTS: Agent[] = [
     status: 'idle',
     capabilities: ['code_review', 'security', 'permission'],
     load: 8,
-  },
-  {
-    id: 'github-bot',
-    name: 'GitHub Operator',
-    status: 'idle',
-    capabilities: ['github_search', 'github_issue', 'github_pr'],
-    load: 0,
   },
 ];

@@ -40,7 +40,7 @@ export function AdminPage() {
 
   return (
     <div className="p-4">
-      <div role="tablist" className="flex gap-2 border-b border-slate-200 dark:border-slate-800 mb-4">
+      <div role="tablist" className="flex gap-2 border-b border-[var(--border)] mb-4">
         {TABS.map((t) => (
           <button
             key={t.key}
@@ -48,17 +48,17 @@ export function AdminPage() {
             aria-selected={t.key === active.key}
             onClick={() => setTab(t.key)}
             className={
-              'px-3 py-2 text-sm border-b-2 -mb-px ' +
+              'px-3 py-2 text-sm border-b-2 -mb-px transition-colors ' +
               (t.key === active.key
-                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                : 'border-transparent text-slate-600 dark:text-slate-300 hover:text-slate-900')
+                ? 'border-[var(--accent-2)] text-[var(--accent-2)]'
+                : 'border-transparent text-[var(--fg-1)] hover:text-[var(--fg-0)]')
             }
           >
             {t.label}
           </button>
         ))}
       </div>
-      <Suspense fallback={<div className="text-sm text-slate-500">Loading…</div>}>
+      <Suspense fallback={<div className="text-sm text-[var(--fg-2)]">Loading…</div>}>
         <active.Comp />
       </Suspense>
     </div>

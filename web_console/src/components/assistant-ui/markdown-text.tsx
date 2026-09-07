@@ -34,7 +34,7 @@ export const MarkdownText: FC = () => {
           const codeText = String(children).replace(/\n$/, '');
           if (!isSupportedLang(lang)) {
             return (
-              <pre className="font-mono text-[12.5px] text-fg1 bg-[rgba(0,0,0,0.4)] rounded-md p-3 overflow-x-auto">
+              <pre className="font-mono text-[12.5px] text-fg1 bg-[var(--code-bg)] rounded-md p-3 overflow-x-auto">
                 <code className={className}>{codeText}</code>
               </pre>
             );

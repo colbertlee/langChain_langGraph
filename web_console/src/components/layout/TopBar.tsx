@@ -1,21 +1,50 @@
-import { useLocation } from 'react-router-dom';
-import { Github, BookOpen } from 'lucide-react';
+import { useLocation, useSearchParams } from 'react-router-dom';
+import { Github, BookOpen, Sun, Moon } from 'lucide-react';
+import { useUIStore } from '@/stores/uiStore';
 
 const TITLES: Record<string, { title: string; sub: string }> = {
   '/': { title: 'Chat', sub: '与 Agent 实时对话，流式输出 · 工具可视化' },
-  '/agents': { title: 'Agents', sub: '多 Agent 集群状态 · 能力 · 负载' },
-  '/approval': { title: 'Human-in-the-Loop', sub: '审批 Agent 的高风险操作' },
-  '/observability': { title: 'Observability', sub: '事件流 · Trace · Prometheus 指标' },
-  '/tools': { title: 'Tools', sub: 'Agent 可用工具与能力广场' },
-  '/settings': { title: 'Settings', sub: 'Provider · Model · API Key' },
+  '/chat': { title: 'Chat', sub: '与 Agent 实时对话，流式输出 · 工具可视化' },
+  '/admin': { title: 'Admin', sub: '多 Agent · 工具 · 设置 · 审批 · 提示 · 记忆' },
+  '/insights': { title: 'Observability', sub: '事件流 · Trace · Prometheus 指标' },
+};
+
+const TAB_TITLES: Record<string, string> = {
+  agents: 'Agents',
+  tools: 'Tools',
+  settings: 'Settings',
+  approval: 'Human-in-the-Loop',
+  prompts: 'Prompts',
+  memory: 'Memory',
+};
+
+const TAB_SUBS: Record<string, string> = {
+  agents: '多 Agent 集群状态 · 能力 · 负载',
+  tools: 'Agent 可用工具与能力广场',
+  settings: 'Provider · Model · API Key',
+  approval: '审批 Agent 的高风险操作',
+  prompts: 'Prompt 版本管理 · 导入导出',
+  memory: 'Agent 长期记忆与上下文',
 };
 
 export function TopBar() {
   const { pathname } = useLocation();
-  const t = TITLES[pathname] ?? TITLES['/'];
+  const [search] = useSearchParams();
+  const base = TITLES[pathname] ?? TITLES['/'];
+  // /admin?tab=xxx → 用 tab 名覆盖
+  const tab = search.get('tab');
+  const t = pathname === '/admin' && tab
+    ? { title: TAB_TITLES[tab] ?? base.title, sub: TAB_SUBS[tab] ?? base.sub }
+    : base;
+  const theme = useUIStore((s) => s.theme);
+  const toggleTheme = useUIStore((s) => s.toggleTheme);
+  const isLight = theme === 'light';
 
   return (
-    <header className="h-14 flex items-center justify-between gap-4 px-6 border-b border-[var(--border)] glass-strong shrink-0">
+    <header
+      className="h-14 flex items-center justify-between gap-4 px-6 border-b border-[var(--border)] shrink-0 transition-colors"
+      style={{ backgroundColor: 'var(--bg-1)' }}
+    >
       <div className="flex flex-col leading-tight min-w-0">
         <h1 className="text-[15px] font-semibold tracking-tight truncate">
           {t.title}
@@ -23,6 +52,20 @@ export function TopBar() {
         <p className="text-[11.5px] text-fg2 truncate">{t.sub}</p>
       </div>
       <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={toggleTheme}
+          className="btn-ghost h-8 px-2.5"
+          aria-label={isLight ? '切换到深色主题' : '切换到浅色主题'}
+          title={isLight ? '切换到深色主题' : '切换到浅色主题'}
+        >
+          {isLight ? (
+            <Moon className="w-4 h-4" strokeWidth={2} />
+          ) : (
+            <Sun className="w-4 h-4" strokeWidth={2} />
+          )}
+          <span className="hidden sm:inline">{isLight ? '深色' : '浅色'}</span>
+        </button>
         <a
           href="https://github.com/colbertlee/langChain_langGraph"
           target="_blank"

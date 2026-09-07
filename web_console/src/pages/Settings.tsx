@@ -147,8 +147,8 @@ export function Settings() {
                             active
                               ? 'border-cyan-500/40 bg-cyan-500/10 text-cyan-300'
                               : configured
-                                ? 'border-[var(--border)] text-fg1 hover:bg-white/5'
-                                : 'border-[var(--border)] text-fg2 hover:bg-white/5 opacity-70'
+                                ? 'border-[var(--border)] text-fg1 hover-overlay'
+                                : 'border-[var(--border)] text-fg2 hover-overlay opacity-70'
                           }`}
                         >
                           <span>{p.label}</span>

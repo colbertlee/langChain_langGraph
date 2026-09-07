@@ -12,7 +12,7 @@ export function ErrorRateWidget() {
 
   useEffect(() => {
     let cancelled = false;
-    api.telemetry?.()
+    api.telemetry()
       .then((snap) => {
         if (cancelled) return;
         setErrors(snap?.counters?.errors_total ?? null);

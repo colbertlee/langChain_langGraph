@@ -33,8 +33,11 @@ export function Sidebar() {
 
   return (
     <aside
-      className="fixed inset-y-0 left-0 z-30 flex flex-col border-r border-[var(--border)] bg-[rgba(10,10,11,0.78)] backdrop-blur-xl transition-[width] duration-300"
-      style={{ width: collapsed ? 64 : 240 }}
+      className="fixed inset-y-0 left-0 z-30 flex flex-col border-r border-[var(--border)] transition-[width] duration-300"
+      style={{
+        width: collapsed ? 64 : 240,
+        backgroundColor: 'var(--bg-1)',
+      }}
     >
       {/* logo */}
       <div className="h-14 flex items-center gap-2.5 px-4 border-b border-[var(--border)] shrink-0">
@@ -85,7 +88,7 @@ export function Sidebar() {
         )}
         <button
           onClick={toggle}
-          className="p-1.5 rounded-md text-fg2 hover:text-fg0 hover:bg-white/5 transition-colors"
+          className="p-1.5 rounded-md text-fg2 hover:text-fg0 hover-overlay transition-colors"
           aria-label="toggle sidebar"
         >
           {collapsed ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}

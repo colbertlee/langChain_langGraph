@@ -110,7 +110,7 @@ export function Memory() {
             <div className="text-[12.5px] text-fg1 leading-relaxed">
               <div>
                 在下方输入任意你想让 Agent 记住的内容，按{' '}
-                <kbd className="px-1.5 py-0.5 rounded bg-white/10 text-[11px] font-mono">Enter</kbd>{' '}
+                <kbd className="px-1.5 py-0.5 rounded bg-[color-mix(in_srgb,var(--fg-0)_10%,transparent)] text-[11px] font-mono">Enter</kbd>{' '}
                 发送。
               </div>
               <div className="text-fg2 mt-1 text-[11.5px]">
@@ -214,7 +214,7 @@ export function Memory() {
                 <button
                   onClick={() => del(it.id)}
                   disabled={deletingId === it.id}
-                  className="text-fg2 hover:text-red-400 disabled:opacity-40 p-1.5 rounded-md hover:bg-white/5 transition-colors opacity-0 group-hover:opacity-100"
+                  className="text-fg2 hover:text-danger disabled:opacity-40 p-1.5 rounded-md hover-overlay transition-colors opacity-0 group-hover:opacity-100"
                   title="删除"
                   aria-label="删除"
                 >

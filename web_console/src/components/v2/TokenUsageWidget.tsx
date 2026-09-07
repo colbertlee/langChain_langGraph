@@ -10,7 +10,7 @@ export function TokenUsageWidget() {
   const [val, setVal] = useState<number | null>(null);
   useEffect(() => {
     let cancelled = false;
-    api.telemetry?.()
+    api.telemetry()
       .then((snap) => {
         if (cancelled) return;
         setVal(snap?.gauges?.tokens_total ?? null);

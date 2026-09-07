@@ -78,4 +78,14 @@ export default defineConfig({
       },
     },
   },
+  optimizeDeps: {
+    include: [
+      'zustand',
+      'zustand/react/shallow',
+      '@assistant-ui/react',
+      '@assistant-ui/core/react',
+      '@assistant-ui/store',
+      '@assistant-ui/tap/react-shim',
+    ],
+  },
 });

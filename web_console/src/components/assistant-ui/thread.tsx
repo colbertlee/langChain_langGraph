@@ -30,11 +30,28 @@ export const Thread: FC = () => {
 };
 
 const EmptyState: FC = () => {
+  // 围绕该 Agent 的真实能力设计示例：
+  // ① 复杂任务规划与多步推理
+  // ② 代码理解、生成、修改与 review
+  // ③ 项目文件 / 数据 / Git 操作
+  // 不放"天气/计算/搜索"等单轮问答式例子（这些 LLM 直接答，不必走 Agent）。
   const examples = [
-    { icon: '🔍', t: '搜索一下 LangGraph 最新版本' },
-    { icon: '📂', t: '查看 ./ai_agent 目录结构' },
-    { icon: '🧮', t: '计算 (1+2i)*(3-4i) 的复数乘法' },
-    { icon: '📚', t: '在知识库里查找 "上下文持久化"' },
+    {
+      icon: '🧠',
+      t: '帮我设计一个支持多步工具调用的 agent 架构，并对比 LangGraph 与 CrewAI 的取舍',
+    },
+    {
+      icon: '💻',
+      t: '阅读 ./ai_agent/app.py，画出从 /api/chat 到 LangGraph invoke 的完整调用链',
+    },
+    {
+      icon: '🔧',
+      t: '在 ai_agent/tools_v2.py 里加一个新工具 subcommand=pdf，按规范实现并接入 agent',
+    },
+    {
+      icon: '📊',
+      t: '基于本仓库最近的 commits 写一份 CHANGELOG，重点列出 v2_slim 的 API 变更',
+    },
   ];
   return (
     <div className="h-full min-h-[60vh] flex flex-col items-center justify-center px-6 text-center">
@@ -91,13 +108,13 @@ const AssistantMessage: FC = () => {
       </div>
       <div className="min-w-0 max-w-3xl">
         {hasBranches && (
-          <div className="mb-1.5 flex items-center gap-1.5 px-2 py-1 rounded-md bg-white/[0.04] border border-[var(--border)] text-[11px] text-fg1 w-fit">
+          <div className="mb-1.5 flex items-center gap-1.5 px-2 py-1 rounded-md bg-[color-mix(in_srgb,var(--fg-0)_5%,transparent)] border border-[var(--border)] text-[11px] text-fg1 w-fit">
             <Layers className="w-3 h-3 text-accent1" />
             <span>分支</span>
             <div className="flex items-center gap-0.5">
               <button
                 onClick={() => aui.message().switchToBranch({ position: 'previous' })}
-                className="p-0.5 rounded hover:bg-white/10 text-fg2 hover:text-fg0"
+                className="p-0.5 rounded hover-overlay-strong text-fg2 hover:text-fg0"
                 aria-label="上一分支"
               >
                 <ChevronLeft className="w-3 h-3" />
@@ -107,7 +124,7 @@ const AssistantMessage: FC = () => {
               </span>
               <button
                 onClick={() => aui.message().switchToBranch({ position: 'next' })}
-                className="p-0.5 rounded hover:bg-white/10 text-fg2 hover:text-fg0"
+                className="p-0.5 rounded hover-overlay-strong text-fg2 hover:text-fg0"
                 aria-label="下一分支"
               >
                 <ChevronRight className="w-3 h-3" />
@@ -147,7 +164,7 @@ const AssistantActions: FC = () => {
     <div className="mt-1.5 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
       <button
         onClick={copy}
-        className="text-fg2 hover:text-fg0 text-[11px] flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-white/5"
+        className="text-fg2 hover:text-fg0 text-[11px] flex items-center gap-1 px-1.5 py-0.5 rounded hover-overlay"
         title="复制"
       >
         <Copy className="w-3 h-3" />
@@ -157,7 +174,7 @@ const AssistantActions: FC = () => {
         <>
           <button
             onClick={() => aui.message().reload()}
-            className="text-fg2 hover:text-fg0 text-[11px] flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-white/5"
+            className="text-fg2 hover:text-fg0 text-[11px] flex items-center gap-1 px-1.5 py-0.5 rounded hover-overlay"
             title="重新生成"
           >
             <RotateCw className="w-3 h-3" />
@@ -165,7 +182,7 @@ const AssistantActions: FC = () => {
           </button>
           <button
             onClick={edit}
-            className="text-fg2 hover:text-fg0 text-[11px] flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-white/5"
+            className="text-fg2 hover:text-fg0 text-[11px] flex items-center gap-1 px-1.5 py-0.5 rounded hover-overlay"
             title="编辑"
           >
             <Pencil className="w-3 h-3" />
@@ -192,7 +209,7 @@ const AttachmentPreview: FC<{ attachment: any }> = ({ attachment }) => {
   const img = attachment.content?.find((c: { type: string }) => c.type === 'image');
   return (
     <div className="flex flex-wrap gap-1.5 px-3 pt-2">
-      <div className="relative group flex items-center gap-2 pl-2 pr-1 py-1 rounded-md border border-[var(--border)] bg-white/[0.04]">
+      <div className="relative group flex items-center gap-2 pl-2 pr-1 py-1 rounded-md border border-[var(--border)] bg-[color-mix(in_srgb,var(--fg-0)_5%,transparent)]">
         {img?.image ? (
           <img
             src={img.image}
@@ -209,7 +226,7 @@ const AttachmentPreview: FC<{ attachment: any }> = ({ attachment }) => {
         </span>
         <button
           onClick={() => void attachment.remove?.()}
-          className="w-5 h-5 rounded flex items-center justify-center text-fg2 hover:text-fg0 hover:bg-white/10"
+          className="w-5 h-5 rounded flex items-center justify-center text-fg2 hover:text-fg0 hover-overlay-strong"
           aria-label="移除附件"
           type="button"
         >
@@ -221,7 +238,7 @@ const AttachmentPreview: FC<{ attachment: any }> = ({ attachment }) => {
 };
 const Composer: FC = () => {
   return (
-    <ComposerPrimitive.Root className="border-t border-[var(--border)] bg-[rgba(10,10,11,0.7)] backdrop-blur-xl p-4">
+    <ComposerPrimitive.Root className="border-t border-[var(--border)] p-4" style={{ backgroundColor: 'var(--bg-1)' }}>
       <div className="max-w-3xl mx-auto">
         <div className="rounded-[14px] border border-[var(--border)] bg-[var(--bg-1)] focus-within:border-cyan-500/40 focus-within:shadow-glow transition-all">
           <ComposerPrimitive.Attachments>
@@ -235,7 +252,7 @@ const Composer: FC = () => {
           <div className="flex items-center justify-between px-2 pb-1.5">
             <div className="flex items-center gap-1">
               <ComposerPrimitive.AddAttachment
-                className="w-7 h-7 rounded-md flex items-center justify-center text-fg2 hover:text-fg0 hover:bg-white/5 transition-colors"
+                className="w-7 h-7 rounded-md flex items-center justify-center text-fg2 hover:text-fg0 hover-overlay transition-colors"
                 aria-label="添加附件"
               >
                 <Paperclip className="w-3.5 h-3.5" />

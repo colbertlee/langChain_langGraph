@@ -55,8 +55,8 @@ export function Observability() {
             className={cn(
               'h-9 px-3.5 text-[13px] font-medium rounded-[10px] flex items-center gap-1.5 transition-colors',
               tab === it.k
-                ? 'bg-white/[0.06] text-fg0'
-                : 'text-fg1 hover:text-fg0 hover:bg-white/[0.03]',
+                ? 'hover-overlay text-fg0'
+                : 'text-fg1 hover:text-fg0 hover-overlay',
             )}
           >
             <it.icon className="w-3.5 h-3.5" />

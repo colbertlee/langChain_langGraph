@@ -17,7 +17,7 @@ export function TraceListTable() {
 
   useEffect(() => {
     let cancelled = false;
-    api.telemetry?.()
+    api.telemetry()
       .then((snap) => {
         if (cancelled) return;
         setSpans(snap?.recent_spans ?? []);
