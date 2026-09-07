@@ -287,7 +287,7 @@ class TestSubAgentExecution:
         """register_sub_agent 内部的 _default_executor"""
         # 通过注册回调覆盖默认
         with patch.object(agent, "tools", [{"name": "test_tool", "description": "test"}]):
-            with patch("agent.get_all_tools", return_value=[]):
+            with patch("agent._resolve_tools", return_value=[]):
                 try:
                     agent.register_sub_agent(
                         capability="x",
