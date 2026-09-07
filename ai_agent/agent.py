@@ -31,7 +31,7 @@ from config import (
     MODEL_NAME, MODEL_PROVIDER, TEMPERATURE, LOG_LEVEL, MODEL_VERSIONS,
     PROVIDER_META,
 )
-from tools import get_all_tools, set_rag_instance
+from tools import set_rag_instance
 from rag import RAGModule
 from security import SecurityModule, set_security_instance, get_security_instance
 from llm_reliability import (
@@ -41,61 +41,55 @@ from llm_reliability import (
     get_invoker, reset_invoker, InvokeResult,
 )
 from context_manager import get_context_manager
-from memory_store import get_memory_store, MemoryImportance
+from memory_store import MemoryImportance
 from prompt_registry import get_prompt_registry, PromptTemplate
 from user_prompt_registry import get_user_prompt_registry
 
+
 # ==========================================================
-# v2.0 slim LEGACY 切换层（不触碰核心闭环）
+# API Key 真实性判断（与 app.py 的 _is_placeholder_key 对齐）
 # ==========================================================
-# 设计：仅替换 tools / memory 的入口；agent.py 内部其余逻辑保持不变。
-#   - LEGACY_MODE=False (默认) → tools/memory 走 v2_slim 的 6 个复合工具 + 双记忆
-#   - LEGACY_MODE=True          → tools/memory 走老 tools.py / memory_store.py 全量实现
-# 切换通过 config.LEGACY_MODE 控制，运行时即时生效（无需重启进程）。
-# ==========================================================
-from config import LEGACY_MODE
-
-if LEGACY_MODE:
-    # LEGACY：直接使用上面的老 import
-    _tools_module = None  # 标记：使用顶部 from tools import
-    _memory_module = None  # 标记：使用顶部 from memory_store import
-    _get_tools_v2 = None
-    _get_memory_store_v2 = None
-else:
-    # v2 slim：延迟注入入口函数到模块全局
-    from v2_slim.tools_v2 import get_all_tools_v2 as _get_tools_v2
-    from v2_slim.memory_store_v2 import (
-        get_memory_store_v2 as _get_memory_store_v2,
-        ShortTermContext as _ShortTermContextV2,
-        LongTermKnowledge as _LongTermKnowledgeV2,
-        MemoryStore as _MemoryStoreV2,
-    )
-    # v2 slim 的 MemoryStore 没有 MemoryImportance 枚举；这里从原 memory_store 取枚举值（仅做意图映射）
-    # MemoryImportance 数值与 v2 一致：LOW=1 / MEDIUM=2 / HIGH=3 / CRITICAL=4
-    _tools_module = "v2"
-    _memory_module = "v2"
+# 目的：get_api_key_status / get_available_models 在判断某 provider 是否
+#       "已配置"时，要排除 .env 模板里的占位符（your_xxx_here / sk-test 等）。
+# 之前用 bool(API_KEY)，会把 "your_openai_api_key_here" 也判为 True，
+# 导致前端 UI 显示「Key 已配置」但实际切换会失败。
+#
+# 与 app.py 的 _is_placeholder_key 保持一致的标记集合。
+_PLACEHOLDER_MARKERS = (
+    "your-", "your_", "xxxx", "placeholder", "<", ">",
+    "sk-xxx", "sk-your", "sk-test", "sk-fake", "fake-key", "fake_key",
+)
 
 
-def _resolve_tools() -> List[Any]:
-    """根据 LEGACY_MODE 返回工具列表。
+def _is_real_api_key(api_key: str) -> bool:
+    """判定一个 API Key 字符串是否为「真实可用」。
 
-    LEGACY 模式：返回老 tools.py 的 18+ 工具；
-    v2 slim 模式：返回 6 个复合 @tool。
+    规则：
+      - 空字符串 → False
+      - 含占位符标记（your-/your_/sk-test 等） → False
+      - 长度 < 8 → False（防误判）
+      - 其他 → True
+
+    与 app.py._is_placeholder_key 行为等价，但额外返回 bool 表示「是否可用」。
     """
-    if _tools_module is None:
-        return get_all_tools()
-    return _get_tools_v2()
+    if not api_key or not isinstance(api_key, str):
+        return False
+    if len(api_key.strip()) < 8:
+        return False
+    low = api_key.strip().lower()
+    for marker in _PLACEHOLDER_MARKERS:
+        if marker in low:
+            return False
+    return True
 
-
-def _resolve_memory_store() -> Any:
-    """根据 LEGACY_MODE 返回记忆 store。
-
-    LEGACY 模式：返回老 MemoryStore（4 类型）；
-    v2 slim 模式：返回 v2_slim.MemoryStore（2 类型）。
-    """
-    if _memory_module is None:
-        return get_memory_store()
-    return _get_memory_store_v2()
+# ==========================================================
+# v2.0 slim 入口（v2.10+ 不再支持 LEGACY_MODE 切换）
+# ==========================================================
+# 历史：本模块曾通过 LEGACY_MODE 在老 tools/memory 与 v2_slim 入口之间切换。
+# v2.10 起，LEGACY 路径与 _legacy.py 模块已全部移除，仅保留 v2 slim 入口。
+# ==========================================================
+from v2_slim.tools_v2 import get_all_tools_v2 as _resolve_tools
+from v2_slim.memory_store_v2 import get_memory_store_v2 as _resolve_memory_store
 
 
 logger = logging.getLogger(__name__)
@@ -109,12 +103,7 @@ if not logger.handlers:
         ],
     )
 
-logger.info(
-    "v2_slim LEGACY_MODE=%s → tools=%s memory=%s",
-    LEGACY_MODE,
-    "legacy" if _tools_module is None else "v2_slim",
-    "legacy" if _memory_module is None else "v2_slim",
-)
+logger.info("v2_slim runtime: tools/memory always v2_slim (LEGACY_MODE removed in v2.10)")
 
 
 # 意图到记忆重要性的映射（替代 agent.py 中散落的字符串匹配）
@@ -194,7 +183,7 @@ class AIAgent:
         self.model: Optional[Any] = None
         self.rag: Optional[RAGModule] = None
         self.security: SecurityModule = get_security_instance()
-        self.tools = get_all_tools()
+        self.tools = _resolve_tools()
         self.checkpointer: Optional[SqliteSaver] = None
         # LangChain 1.x：create_agent 直接返回可执行对象
         self.agent: Optional[Any] = None
@@ -264,7 +253,7 @@ class AIAgent:
 
         base_url = _build_provider_base_url(provider)
 
-        # OpenAI 兼容 provider：openai + 全部国产模型（除 baidu/spark 外）
+        # OpenAI 兼容 provider：openai + 全量国产模型（除 baidu/spark 外）
         if provider in {
             "openai", "deepseek", "qwen", "zhipu", "moonshot", "minimax",
             "doubao", "hunyuan", "siliconflow",
@@ -384,17 +373,17 @@ class AIAgent:
 
     def get_api_key_status(self) -> Dict[str, Any]:
         api_key_map = {
-            "openai": bool(OPENAI_API_KEY),
-            "deepseek": bool(DEEPSEEK_API_KEY),
-            "qwen": bool(QWEN_API_KEY),
-            "zhipu": bool(ZHIPU_API_KEY or GLM_API_KEY),
-            "moonshot": bool(MOONSHOT_API_KEY),
-            "minimax": bool(MINIMAX_API_KEY),
-            "baidu": bool(BAIDU_API_KEY),
-            "spark": bool(SPARK_API_KEY),
-            "doubao": bool(DOUBAO_API_KEY),
-            "hunyuan": bool(HUNYUAN_API_KEY),
-            "siliconflow": bool(SILICONFLOW_API_KEY),
+            "openai": _is_real_api_key(OPENAI_API_KEY),
+            "deepseek": _is_real_api_key(DEEPSEEK_API_KEY),
+            "qwen": _is_real_api_key(QWEN_API_KEY),
+            "zhipu": _is_real_api_key(ZHIPU_API_KEY) or _is_real_api_key(GLM_API_KEY),
+            "moonshot": _is_real_api_key(MOONSHOT_API_KEY),
+            "minimax": _is_real_api_key(MINIMAX_API_KEY),
+            "baidu": _is_real_api_key(BAIDU_API_KEY),
+            "spark": _is_real_api_key(SPARK_API_KEY),
+            "doubao": _is_real_api_key(DOUBAO_API_KEY),
+            "hunyuan": _is_real_api_key(HUNYUAN_API_KEY),
+            "siliconflow": _is_real_api_key(SILICONFLOW_API_KEY),
         }
         return {
             "configured": api_key_map.get(self.model_provider, False),
