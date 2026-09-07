@@ -28,15 +28,37 @@ Thumbs.db
 
 # Charts (generated)
 chart_*.png
+_chart_*.png
+_chart_*.txt
 
 # Diagnostic scripts / probe artifacts (v2.0.9)
 _diag_*.py
+diag_*.py
 local.jsonl
 acc.txt
 bm.txt
 probe-out.txt
 verify-out.txt
 wsl_*.txt
+_e2e_*.txt
+_e2e_*.py
+_dataflow.py
+_demo.txt
+_products.json
+_sales.csv
+
+# 顶层一次性调试脚本（与 tests/ 下正式 pytest 测试重复，不在 pytest 收集范围）
+test_chart_*.py
+test_chart2.py
+test_sse*.py
+test_endpoints.py
+test_tools.py
+test_tools_direct.py
+test_tools_relpath.py
+test_tools_v2.py
+test_data.py
+test_minimax_direct.py
+test_fileops_code.py
 
 # Historical test runs archive (v2.0.9)
 tests-archive/
