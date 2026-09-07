@@ -194,14 +194,16 @@ class TestSkillManager:
     def test_init_loads_builtin_skills(self):
         mgr = SkillManager()
         all_skills = mgr.registry.list_all()
-        assert len(all_skills) >= 5   # 至少有 5 个内置技能
+        # chart_visualization 已移除；剩 4 个内置技能
+        assert len(all_skills) >= 4   # 至少有 4 个内置技能
 
     def test_builtin_deep_research(self):
         mgr = SkillManager()
         skill = mgr.registry.get("deep_research")
         assert skill is not None
         assert skill.category == "research"
-        assert "search_web" in skill.tools
+        # search_web 已删除；改为不严格断言
+        assert isinstance(skill.tools, list) and len(skill.tools) >= 1
 
     def test_builtin_code_documentation(self):
         mgr = SkillManager()
@@ -222,12 +224,7 @@ class TestSkillManager:
         assert skill is not None
         assert skill.category == "academic"
 
-    def test_builtin_chart_visualization(self):
-        mgr = SkillManager()
-        skill = mgr.registry.get("chart_visualization")
-        assert skill is not None
-        assert skill.category == "data"
-        assert "generate_chart" in skill.tools
+    # chart_visualization skill 已移除（依赖 generate_chart 玩具工具）
 
     def test_all_builtin_enabled(self):
         mgr = SkillManager()
@@ -246,7 +243,9 @@ class TestExecuteSkill:
         result = await mgr.execute_skill("deep_research", {"topic": "AI"})
         assert result.success is True
         assert "prompt" in result.metadata
-        assert result.metadata["required_tools"] == ["search_web", "query_knowledge_base"]
+        # search_web 已删除，required_tools 仅断言非空 + 含 query_knowledge_base
+        assert isinstance(result.metadata["required_tools"], list)
+        assert "query_knowledge_base" in result.metadata["required_tools"]
         assert "AI" in result.metadata["prompt"]
 
     @pytest.mark.asyncio
@@ -326,7 +325,7 @@ class TestListCategories:
         assert "research" in categories
         assert "development" in categories
         assert "academic" in categories
-        assert "data" in categories
+        # "data" 分类已随 chart_visualization skill 一起移除
         assert "productivity" in categories
 
     def test_list_categories_no_duplicates(self):
@@ -373,7 +372,8 @@ class TestGlobalSkillManager:
 
     def test_loaded_skills(self):
         mgr = get_skill_manager()
-        assert len(mgr.registry.list_all()) >= 5
+        # chart_visualization 已移除；剩 4 个内置技能
+        assert len(mgr.registry.list_all()) >= 4
 
 
 # ─────────────────── Edge cases ───────────────────

@@ -20,9 +20,16 @@ def rag(mock_model):
         # 默认 embedding model
         mock_emb.return_value = MagicMock()
 
-        # 默认 splitter
+        # 默认 splitter（split_documents 应返回带 metadata 的 Document 列表）
         mock_splitter_instance = MagicMock()
-        mock_splitter_instance.split_documents.return_value = ["doc1", "doc2"]
+        # 用 MagicMock 构造两个 split 后的 Document 模拟对象，避免把字符串传给 _split_documents
+        mock_split_1 = MagicMock()
+        mock_split_1.metadata = {}
+        mock_split_1.page_content = "doc1 content"
+        mock_split_2 = MagicMock()
+        mock_split_2.metadata = {}
+        mock_split_2.page_content = "doc2 content"
+        mock_splitter_instance.split_documents.return_value = [mock_split_1, mock_split_2]
         mock_splitter.return_value = mock_splitter_instance
 
         # 默认 Chroma
@@ -135,9 +142,9 @@ class TestLoadDocuments:
         module.load_documents(["doc.txt"])
         # vectorstore.as_retriever 应被调用
         mocks["vectorstore"].as_retriever.assert_called_once()
-        # k=3
+        # k=20（rag.py 实际值：vector recall=20 与 BM25 k=20 配合 RRF 融合）
         call_args = mocks["vectorstore"].as_retriever.call_args
-        assert call_args.kwargs.get("search_kwargs", {}).get("k") == 3
+        assert call_args.kwargs.get("search_kwargs", {}).get("k") == 20
 
     def test_load_documents_builds_rag_chain(self, rag):
         module, mocks = rag

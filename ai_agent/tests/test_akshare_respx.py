@@ -194,29 +194,5 @@ class TestAkshareDirectMock:
 # ==================== 示例 4: 集成到 tools.py 的 ETF 函数 ====================
 
 
-class TestToolsEETFWithMock:
-    """演示如何用 mock 跑 tools.py 的 ETF 函数。"""
-
-    def test_get_etf_info_mocked(self):
-        """用 mock 跑 get_etf_info 验证逻辑。"""
-        from unittest.mock import patch
-        import pandas as pd
-
-        # Mock 内部 akshare 调用
-        mock_data = pd.DataFrame([{
-            "基金名称": "沪深300ETF",
-            "基金全称": "华泰柏瑞沪深300ETF",
-            "基金管理人": "华泰柏瑞",
-            "成立日期": "2012-05-04",
-            "最新规模": "1000亿元",
-            "最新净值": "1.234",
-            "净值日期": "2024-01-15",
-            "风险等级": "中高风险",
-        }])
-
-        with patch("akshare.fund_etf_fund_info_em", return_value=mock_data):
-            from tools import get_etf_info
-            # get_etf_info 是 @tool 装饰的 StructuredTool
-            result = get_etf_info.invoke({"etf_code": "510300"})
-            # 应包含基金名称
-            assert "沪深300ETF" in result or "510300" in result
+# get_etf_info 已从 tools.py 中移除；相关 mock 测试一并删除
+# class TestToolsEETFWithMock: ...（已删除）

@@ -528,8 +528,8 @@ class ResilientLLMInvoker:
         breakers: Optional[Dict[str, ProviderBreaker]] = None,
         fail_log: Optional[FailLogRepository] = None,
         degradation: Optional[GracefulDegradation] = None,
-        invoke_timeout: float = 30.0,
-        total_timeout: float = 120.0,
+        invoke_timeout: float = 90.0,
+        total_timeout: float = 600.0,
     ):
         self.fallback_chain = fallback_chain
         self.retry_config = retry_config or RetryConfig()

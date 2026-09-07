@@ -103,6 +103,9 @@ class AgentProxy:
         try:
             from capability import get_capability_registry
             self._capability_registry = get_capability_registry()
+            # 首次拿到 registry 时立即 seed demo workers（确保 list_workers 有数据）
+            if not self._capability_registry.list_all():
+                _seed_demo_workers_into(self._capability_registry)
         except Exception:
             self._capability_registry = None
 
@@ -568,6 +571,86 @@ app.add_middleware(
 )
 
 
+# ============================================================
+# Demo Worker seed（最小可用示例）
+# ============================================================
+def _seed_demo_workers_into(registry: "Any") -> None:
+    """把 demo worker 注册到传入的 registry。重复注册自动跳过。
+
+    生产环境应替换为真实 Worker 上线注册逻辑（mcp_tools / 外部服务发现等）。
+    """
+    try:
+        from capability import WorkerProfile, CapabilityProfile
+    except Exception as e:  # pragma: no cover - capability 模块缺失时跳过
+        logger.info(f"[demo-seed] capability module unavailable: {e}")
+        return
+
+    if registry is None:
+        return
+    if registry.list_all():
+        return  # 已注册就跳过
+
+    demos: List[WorkerProfile] = [
+        WorkerProfile(
+            worker_id="supervisor-01",
+            name="Supervisor",
+            tags=["router", "planner"],
+            capabilities={
+                "task_routing": CapabilityProfile(name="task_routing", quality=0.92, avg_latency_ms=400),
+                "plan_synthesis": CapabilityProfile(name="plan_synthesis", quality=0.90, avg_latency_ms=1200),
+                "negotiation": CapabilityProfile(name="negotiation", quality=0.85, avg_latency_ms=800),
+            },
+        ),
+        WorkerProfile(
+            worker_id="coder-02",
+            name="Coder",
+            tags=["accurate", "thorough"],
+            capabilities={
+                "python_exec": CapabilityProfile(name="python_exec", quality=0.95, avg_latency_ms=3500),
+                "code_review": CapabilityProfile(name="code_review", quality=0.90, avg_latency_ms=4200),
+                "file_io": CapabilityProfile(name="file_io", quality=0.88, avg_latency_ms=600),
+            },
+        ),
+        WorkerProfile(
+            worker_id="researcher-01",
+            name="Researcher",
+            tags=["broad-coverage", "deep"],
+            capabilities={
+                "web_search": CapabilityProfile(name="web_search", quality=0.88, avg_latency_ms=1800),
+                "rag": CapabilityProfile(name="rag", quality=0.86, avg_latency_ms=2500),
+                "summarize": CapabilityProfile(name="summarize", quality=0.89, avg_latency_ms=1500),
+            },
+        ),
+        WorkerProfile(
+            worker_id="reviewer-01",
+            name="Reviewer",
+            tags=["security", "permission"],
+            capabilities={
+                "code_review": CapabilityProfile(name="code_review", quality=0.88, avg_latency_ms=3000),
+                "security": CapabilityProfile(name="security", quality=0.91, avg_latency_ms=2800),
+                "permission": CapabilityProfile(name="permission", quality=0.87, avg_latency_ms=600),
+            },
+        ),
+    ]
+
+    for w in demos:
+        try:
+            registry.register(w)
+        except Exception as e:
+            logger.warning(f"[demo-seed] register {w.worker_id} failed: {e}")
+
+
+@app.on_event("startup")
+def _on_startup_seed_demo_workers() -> None:
+    """FastAPI 启动时注册 demo workers，确保 /api/agents 返回非空数据。"""
+    try:
+        from capability import get_capability_registry
+        registry = get_capability_registry()
+        _seed_demo_workers_into(registry)
+    except Exception as e:
+        logger.warning(f"[demo-seed] startup seed skipped: {e}")
+
+
 _agent_instance = None
 _proxy_instance = None
 
@@ -682,6 +765,74 @@ class _NullProxy:
     }
 
     def __getattr__(self, name):
+        if name == "list_workers":
+            # 即便 agent 未初始化，capability_registry 仍可能已 seed demo workers
+            def _list_workers_callable(capability=None):
+                try:
+                    from capability import get_capability_registry
+                    reg = get_capability_registry()
+                    if reg is None:
+                        return []
+                    profiles = reg.list_all() if not capability else reg.find(capability)
+                    out = []
+                    for p in profiles:
+                        d = p.to_dict() if hasattr(p, "to_dict") else dict(p)
+                        d.setdefault("error_rate", 0.0)
+                        d.setdefault("failed_tasks", 0)
+                        d.setdefault("load", 0)
+                        out.append(d)
+                    return out
+                except Exception:
+                    return []
+            return _list_workers_callable
+        if name == "list_capabilities":
+            # 优先尝试 task_intent_registry（已注册的默认能力）
+            def _list_capabilities_callable():
+                try:
+                    from task_intent import get_task_intent_registry
+                    reg = get_task_intent_registry()
+                    return [
+                        {
+                            "name": c.name,
+                            "description": c.description,
+                            "keywords": c.keywords,
+                            "aliases": c.aliases,
+                            "avg_latency_ms": c.avg_latency_ms,
+                            "avg_cost": c.avg_cost,
+                            "preferred_worker_tags": c.preferred_worker_tags,
+                        }
+                        for c in reg.list_capabilities()
+                    ]
+                except Exception:
+                    return []
+            return _list_capabilities_callable
+        if name == "list_task_types":
+            def _list_task_types_callable():
+                try:
+                    from task_intent import get_task_intent_registry
+                    reg = get_task_intent_registry()
+                    return [
+                        {
+                            "name": t.name,
+                            "description": t.description,
+                            "default_capability": t.default_capability,
+                            "needs_decomposition": t.needs_decomposition,
+                            "priority": t.priority,
+                        }
+                        for t in reg.list_task_types()
+                    ]
+                except Exception:
+                    return []
+            return _list_task_types_callable
+        if name == "get_tools_list":
+            def _get_tools_list_callable():
+                try:
+                    from task_intent import get_task_intent_registry
+                    reg = get_task_intent_registry()
+                    return [c.name for c in reg.list_capabilities()]
+                except Exception:
+                    return []
+            return _get_tools_list_callable
         if name in self._READ_STUBS:
             return self._READ_STUBS[name]
         # 写入/操作类 → 返回错误 dict
@@ -793,7 +944,11 @@ except Exception:
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "timestamp": time.time()}
+    return {
+        "status": "ok",
+        "agent_ready": get_agent() is not None,
+        "timestamp": time.time(),
+    }
 
 
 @app.get("/api/version")

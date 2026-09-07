@@ -35,7 +35,7 @@ AI Agent 项目更新记录。
 - `tests/test_staging_monitor.py` — 15 个 staging 探针。
 - `tests/test_v2_slim_*.py` × 6 — 双入口一致性 / frozen 抛错 / LEGACY 切换 / 迁移 / run pipeline / 7-event schema / 工具子命令路由。
 
-总计 slim profile: 613 passed ✅(legacy `tests/legacy/` 280 用例 skip)
+总计 slim profile: 613 passed ✅
 
 ## v0.3.0 (2026-07-23) — 阶段 B：国内主流模型 Provider
 

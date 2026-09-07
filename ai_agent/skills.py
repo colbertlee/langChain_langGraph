@@ -101,10 +101,7 @@ class SkillManager:
         
         # 论文审阅技能
         self._register_paper_review_skill()
-        
-        # 图表生成技能（基于现有的）
-        self._register_chart_skill()
-        
+
         self.logger.info("[Skill] Loaded {} builtin skills".format(
             len(self.registry.list_all())))
     
@@ -219,28 +216,7 @@ class SkillManager:
             }
         )
         self.registry.register(skill)
-    
-    def _register_chart_skill(self):
-        """注册图表生成技能"""
-        skill = Skill(
-            name="chart_visualization",
-            description="数据可视化图表 - 生成专业的数据可视化图表",
-            category="data",
-            prompt_template="""你是一个数据可视化专家。请为以下数据设计图表：
 
-数据描述：{data_description}
-图表类型：{chart_type}
-
-请生成适合的图表代码或数据格式。""",
-            tools=["generate_chart"],
-            metadata={
-                "version": "1.0.0",
-                "author": "AI Agent",
-                "created": datetime.now().isoformat()
-            }
-        )
-        self.registry.register(skill)
-    
     async def execute_skill(self, skill_name: str, context: Dict[str, Any]) -> SkillResult:
         """执行技能"""
         skill = self.registry.get(skill_name)
