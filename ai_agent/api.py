@@ -7,32 +7,23 @@ import uuid
 import os
 
 from agent import AIAgent
-from config import LEGACY_MODE
 
 # ==========================================================
-# v2.0 slim LEGACY 切换：observability / monitor / json_log / permission / human_in_loop
+# v2.0 slim telemetry（v2.10+ 不再支持 LEGACY_MODE 切换）
 # ==========================================================
-# - LEGACY_MODE=False → 走 ai_agent.v2_slim.telemetry + v2_slim.approval
-# - LEGACY_MODE=True  → 走老 monitor / observability / json_log / permission / human_in_loop
-# 切换通过 config.LEGACY_MODE 控制（无需重启进程）。
+# 历史：本段曾通过 config.LEGACY_MODE 在老 monitor 与 v2_slim.telemetry 之间切换。
+# v2.10 起统一走 v2_slim.telemetry。
 # ==========================================================
-if LEGACY_MODE:
-    from monitor import get_monitor  # noqa: F401  LEGACY 透传
-    _TELEMETRY_BACKEND = "legacy_monitor"
-else:
-    from v2_slim.telemetry import get_telemetry as _v2_get_telemetry
-    _TELEMETRY_BACKEND = "v2_slim_telemetry"
+from v2_slim.telemetry import get_telemetry as _v2_get_telemetry
+_TELEMETRY_BACKEND = "v2_slim_telemetry"
 
 
 def _resolve_monitor():
-    """根据 LEGACY_MODE 返回 monitor 实例（get_stats / reset 兼容）。
+    """返回 monitor 实例（get_stats / reset 兼容）。
 
     v2 slim 的 TelemetrySink 暴露 .snapshot() / .flush() / .emit()，不提供 get_stats。
     这里返回的对象统一暴露 .get_stats() 和 .reset()，让上层 api.py 无感知。
     """
-    if LEGACY_MODE:
-        from monitor import get_monitor
-        return get_monitor()
     sink = _v2_get_telemetry()
 
     class _Adapter:

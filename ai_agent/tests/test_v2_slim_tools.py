@@ -280,13 +280,12 @@ def test_security_module_still_threat_input():
 
 
 # ============================================================
-# 6. LEGACY 兜底
+# 6. v2 slim frozen 模块验证（v2.10+ LEGACY 兜底模块已删除）
 # ============================================================
 
-def test_legacy_modules_importable():
-    """LEGACY 兜底模块必须可正常 import（即使在 v2 模式下）。"""
-    # 这些模块在 LEGACY_MODE=False 时也应可导入
-    from ai_agent.v2_slim import tools_legacy, memory_store_legacy
+def test_v2_slim_modules_importable():
+    """v2 slim 主路径模块必须可正常 import。"""
+    # v2.10+：LEGACY 兜底模块（tools_legacy / memory_store_legacy）已删除，不再 import 它们。
     from ai_agent.v2_slim import approval, telemetry, multi_agent_v2
     from ai_agent.v2_slim.frozen import frozen
     from ai_agent.v2_slim.frozen_modules import ab_test, rate_limit
@@ -295,12 +294,8 @@ def test_legacy_modules_importable():
 
 
 def test_legacy_mode_flag_default():
-    """config.LEGACY_MODE 默认必须为 False（v2 slim 优先）。"""
-    from config import LEGACY_MODE
-    assert LEGACY_MODE is False or LEGACY_MODE is True  # 不强制
-    # 默认期望 False
-    os.environ.pop("AIAgent_LEGACY", None)
-    # 重新读取
+    """config.LEGACY_MODE 必须恒为 False（v2.10+ 不再支持 env 切换）。"""
     import importlib, config
+    os.environ.pop("AIAgent_LEGACY", None)
     importlib.reload(config)
     assert config.LEGACY_MODE is False

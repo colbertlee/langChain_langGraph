@@ -254,7 +254,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         logger.info("LongTermKnowledge 迁移完成：%d 个文档", long_count)
 
         logger.info("✅ 迁移完成。短记忆=%d / 长记忆=%d", short_count, long_count)
-        logger.info("下一步：设置环境变量 AIAgent_LEGACY=false 启用 v2 slim")
+        logger.info("下一步：v2.10+ 无需切换，v2 slim 已是默认运行时")
         return 0
     except Exception as e:
         logger.exception("迁移失败: %s", e)

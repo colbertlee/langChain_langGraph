@@ -4,9 +4,9 @@ v2.0 slim — 冻结模块的中央占位
 ab_testing / adaptive_threshold / rate_limit / distributed_bus / mcp_server 等
 被裁剪模块的"门面"。
 
-为什么不直接修改原文件？
-→ 用户决策是"绝对不碰核心 + LEGACY 完整保留"。原文件保留以便 config.LEGACY_MODE=True
-  时继续工作；本模块仅作为发现"被冻结调用点"的统一入口。
+历史：v2.0.9 时期曾设想通过 config.LEGACY_MODE=True 切换回原模块。
+v2.10 起 LEGACY_MODE 已删除为常量 False，本模块的占位 stub 永久生效。
+原被裁剪模块文件仍保留在 ai_agent/ 根目录（未删除），如需恢复可手动 import。
 """
 from __future__ import annotations
 

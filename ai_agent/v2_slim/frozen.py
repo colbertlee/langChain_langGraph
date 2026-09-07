@@ -60,8 +60,8 @@ class _FrozenDecorator:
             _stub.__qualname__ = getattr(original, "__qualname__", original.__name__)
             _stub.__doc__ = (
                 f"⚠️ {self._name} 已在 v2.0 slim 中冻结。\n"
-                f"调用将抛出 NotImplementedError。如需恢复，请设置 "
-                f"config.LEGACY_MODE=True 或迁移到 experimental/ 子模块。"
+                f"调用将抛出 NotImplementedError。如需恢复，请迁移到 "
+                f"experimental/ 子模块（v2.10+ 不再支持 LEGACY_MODE 切换）。"
             )
             return _stub
 

@@ -213,35 +213,16 @@ def test_v2_slim_double_entry_import():
 
 
 # ============================================================
-# 6. LEGACY 兜底模块仍可导入（兼容性测试）
+# 6. frozen 模块必须抛 NotImplementedError（不静默）
 # ============================================================
-
-def test_legacy_modules_importable():
-    """LEGACY 兜底模块在两种模式下都必须可 import。"""
-    # 这些模块无论 LEGACY_MODE=True/False 都应可导入（只是可能 not implemented）
-    from v2_slim.tools_legacy import get_all_tools as legacy_get_all
-    from v2_slim.memory_store_legacy import get_memory_store as legacy_get_ms
-    from v2_slim.multi_agent_legacy import get_orchestrator as legacy_get_orch
-    from v2_slim.frozen_modules import ab_test, rate_limit
-    from v2_slim.negotiation_legacy import negotiate
-    assert callable(legacy_get_all)
-    assert callable(legacy_get_ms)
-    assert callable(legacy_get_orch)
-    assert callable(ab_test)
-    assert callable(rate_limit)
-    assert callable(negotiate)
-
-
-# ============================================================
-# 7. frozen 模块必须抛 NotImplementedError（不静默）
-# ============================================================
+# v2.10+：LEGACY 兜底模块（v2_slim/*_legacy.py）已删除，不再验证 legacy 兜底。
+# 原 line 215-232 的 test_legacy_modules_importable 已随之移除。
 
 def test_frozen_modules_raise_not_implemented():
     """所有 frozen 模块调用必须抛 NotImplementedError（不能静默成功）。"""
     from v2_slim.frozen_modules import ab_test, rate_limit
-    from v2_slim.negotiation_legacy import negotiate
 
-    for fn in (ab_test, rate_limit, negotiate):
+    for fn in (ab_test, rate_limit):
         with pytest.raises(NotImplementedError) as ei:
             fn()
         assert "Frozen in v2.0 slim" in str(ei.value), (

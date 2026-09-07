@@ -223,10 +223,11 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 EMBEDDING_API_KEY = os.getenv("EMBEDDING_API_KEY", "")
 EMBEDDING_MODEL_TYPE = os.getenv("EMBEDDING_MODEL_TYPE", "openai")  # openai/minimax/zhipu/jina
 
-# ============ v2.0 slim 开关 ============
-# LEGACY_MODE=True  → 走老实现（tools_legacy / multi_agent_legacy / permission+human_in_loop ...）
-# LEGACY_MODE=False → 走 v2 slim（6 个复合工具 / 双记忆 / Sequential+Supervisor / approval+telemetry 合并）
-LEGACY_MODE = os.getenv("AIAgent_LEGACY", "false").lower() == "true"
+# ============ v2.0 slim 开关（v2.10+ LEGACY 路径已彻底移除） ============
+# 历史：AIAgent_LEGACY env 变量曾用于在 v2 slim 与 老 tools/memory/multi_agent/telemetry
+# 实现之间切换。v2.10 起，老实现（v2_slim/*_legacy.py）已全部删除，运行时统一走 v2 slim。
+# 保留 LEGACY_MODE 常量仅为兼容外部监控 / 历史测试断言（永远 False）。
+LEGACY_MODE = False
 
 # v2 slim 命名空间路径（避免循环引用）
 V2_SLIM_PACKAGE = "ai_agent.v2_slim"

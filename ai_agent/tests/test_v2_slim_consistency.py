@@ -109,20 +109,24 @@ def test_v2_slim_subpackage_importable():
 # ============================================================
 # 2. 配置开关一致性
 # ============================================================
+# v2.10+：LEGACY_MODE 已从环境变量读取改为常量 False。
+# 仅保留"必须是 False"这一个不变量断言；旧的"env=true 时切到 True"
+# 双路测试已删除（test_v2_slim_legacy_switch.py 整个文件随之删除）。
 
-def test_legacy_mode_default_false():
-    """LEGACY_MODE 默认必须为 False（v2 slim 优先）。"""
+def test_legacy_mode_is_false_constant():
+    """LEGACY_MODE 必须恒为 False（v2.10 起不再支持 env 切换）。"""
     import config
-    assert config.LEGACY_MODE is False, f"LEGACY_MODE 默认为 False，实际 {config.LEGACY_MODE}"
+    assert config.LEGACY_MODE is False, f"LEGACY_MODE 期望为 False，实际 {config.LEGACY_MODE}"
 
 
-def test_legacy_mode_respects_env():
-    """环境变量 AIAgent_LEGACY=true 必须被尊重。"""
+def test_legacy_env_var_is_ignored():
+    """即使设置 AIAgent_LEGACY=true，LEGACY_MODE 仍为 False。"""
     os.environ["AIAgent_LEGACY"] = "true"
     try:
+        # 重新 import 才能看到 config.py 重读后的值
         import importlib, config
         importlib.reload(config)
-        assert config.LEGACY_MODE is True
+        assert config.LEGACY_MODE is False, "AIAgent_LEGACY env 已被忽略"
     finally:
         del os.environ["AIAgent_LEGACY"]
         import importlib, config
