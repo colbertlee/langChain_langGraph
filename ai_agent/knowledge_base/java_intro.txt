@@ -1,0 +1,39 @@
+Java 入门指南
+
+1. Java 简介
+Java 是一种面向对象的高级编程语言。它由 James Gosling 和他的团队于 1995 年在 Sun Microsystems 发布。Java 的设计理念是"一次编写，到处运行"。
+
+2. Java 的特点
+- 简单易学：语法清晰，去除了 C++ 中的复杂特性
+- 面向对象：纯面向对象编程
+- 静态类型：编译时确定变量类型
+- 跨平台：通过 JVM 实现
+- 丰富的库：JDK 和大量框架
+
+3. Java 的应用领域
+- 企业级开发：Spring、Hibernate
+- Android 开发：原生 Android SDK
+- 大数据：Hadoop、Spark
+- 金融系统：银行、证券交易
+
+4. 基础语法
+- 打印输出：System.out.println("Hello, World!");
+- 变量声明：int x = 10;
+- 条件语句：if (x > 0) { ... }
+- 循环语句：for (int i = 0; i < 10; i++) { ... }
+- 函数定义：public void hello() { ... }
+
+5. 数据类型
+- 整数：byte、short、int、long
+- 浮点：float、double
+- 字符：char
+- 布尔：boolean
+- 引用类型：类、数组、接口
+
+6. Java 版本
+当前 LTS 版本是 Java 21，Java 8 仍在广泛使用。
+
+7. 学习资源
+- 官方文档：docs.oracle.com
+- 在线教程：Codecademy、Udemy
+- 书籍：《Java 核心技术》

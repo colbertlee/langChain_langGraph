@@ -1,0 +1,40 @@
+JavaScript 入门指南
+
+1. JavaScript 简介
+JavaScript 是一种高级、解释型编程语言，主要用于浏览器和服务器端开发。它由 Brendan Eich 于 1995 年创建。JavaScript 是 Web 的三大核心技术之一。
+
+2. JavaScript 的特点
+- 动态类型：变量类型在运行时确定
+- 事件驱动：支持异步事件处理
+- 函数式编程：函数是一等公民
+- 跨平台：浏览器、Node.js、移动端
+- 丰富的生态：npm 拥有大量第三方包
+
+3. JavaScript 的应用领域
+- 前端开发：React、Vue、Angular
+- 后端开发：Node.js、Express
+- 移动应用：React Native、Ionic
+- 桌面应用：Electron
+
+4. 基础语法
+- 打印输出：console.log("Hello, World!")
+- 变量声明：let x = 10; const y = 20;
+- 条件语句：if (x > 0) { ... }
+- 循环语句：for (let i = 0; i < 10; i++) { ... }
+- 函数定义：function hello() { ... } 或 const hello = () => { ... }
+
+5. 数据类型
+- 数值类型：number
+- 字符串：string
+- 布尔：boolean
+- 对象：object
+- 数组：array
+- 集合：Set、Map
+
+6. JavaScript 版本
+ECMAScript 2024 是当前标准。旧版 IE 已经停止支持。
+
+7. 学习资源
+- 官方文档：developer.mozilla.org
+- 在线教程：freeCodeCamp、JavaScript.info
+- 书籍：《JavaScript 高级程序设计》

@@ -1,0 +1,23 @@
+{
+  "total": 30,
+  "recall_at_k": 1.0,
+  "mrr": 0.925,
+  "avg_latency_ms": 2927.3,
+  "by_difficulty": {
+    "easy": {
+      "count": 9,
+      "recall_at_k": 1.0,
+      "mrr": 1.0
+    },
+    "medium": {
+      "count": 12,
+      "recall_at_k": 1.0,
+      "mrr": 0.9167
+    },
+    "hard": {
+      "count": 9,
+      "recall_at_k": 1.0,
+      "mrr": 0.8611
+    }
+  }
+}

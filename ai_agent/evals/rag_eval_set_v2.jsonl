@@ -1,0 +1,34 @@
+# RAG 评估集 v2：含 3 个干扰文档（Python / JS / Java）
+# 运行：python -m evals.rag_eval --kb knowledge_base --queries evals/rag_eval_set_v2.jsonl --compare
+
+{"id": "q-001", "query": "Python 是什么时候发布的？", "expected_keywords": ["1991", "Guido"], "difficulty": "easy"}
+{"id": "q-002", "query": "Python 的设计理念是什么？", "expected_keywords": ["可读性", "简洁"], "difficulty": "easy"}
+{"id": "q-003", "query": "Python 支持面向对象吗？", "expected_keywords": ["面向对象"], "difficulty": "easy"}
+{"id": "q-004", "query": "Python 是动态类型还是静态类型？", "expected_keywords": ["动态类型"], "difficulty": "easy"}
+{"id": "q-005", "query": "Python 能在哪些操作系统上运行？", "expected_keywords": ["Windows", "macOS", "Linux"], "difficulty": "easy"}
+{"id": "q-006", "query": "Python 用于 Web 开发的框架有哪些？", "expected_keywords": ["Django", "Flask"], "difficulty": "easy"}
+{"id": "q-007", "query": "Python 在数据分析领域常用的库是什么？", "expected_keywords": ["NumPy", "Pandas", "Matplotlib"], "difficulty": "easy"}
+{"id": "q-008", "query": "Python 在 AI 领域用哪些框架？", "expected_keywords": ["TensorFlow", "PyTorch", "Scikit-learn"], "difficulty": "easy"}
+{"id": "q-009", "query": "Python 怎么打印 Hello World？", "expected_keywords": ["print", "Hello"], "difficulty": "medium"}
+{"id": "q-010", "query": "Python 怎么定义一个函数？", "expected_keywords": ["def"], "difficulty": "medium"}
+{"id": "q-011", "query": "Python 怎么写 for 循环？", "expected_keywords": ["for", "range"], "difficulty": "medium"}
+{"id": "q-012", "query": "Python 包含哪些基本数据类型？", "expected_keywords": ["int", "float", "str", "list"], "difficulty": "medium"}
+{"id": "q-013", "query": "Python 字典是什么类型？", "expected_keywords": ["dict"], "difficulty": "medium"}
+{"id": "q-014", "query": "Python 当前稳定版本是多少？", "expected_keywords": ["3.12"], "difficulty": "medium"}
+{"id": "q-015", "query": "Python 2 还在维护吗？", "expected_keywords": ["不再维护"], "difficulty": "medium"}
+{"id": "q-016", "query": "学习 Python 有什么官方文档？", "expected_keywords": ["docs.python.org"], "difficulty": "medium"}
+{"id": "q-017", "query": "推荐一本 Python 入门的书", "expected_keywords": ["从入门到实践"], "difficulty": "medium"}
+{"id": "q-018", "query": "Python 适合做游戏开发吗？", "expected_keywords": ["Pygame"], "difficulty": "hard"}
+{"id": "q-019", "query": "Python 可以写自动化脚本吗？", "expected_keywords": ["自动化", "爬虫"], "difficulty": "hard"}
+{"id": "q-020", "query": "Python 是不是解释型语言？", "expected_keywords": ["解释型"], "difficulty": "hard"}
+{"id": "q-021", "query": "Python 是谁创造的？", "expected_keywords": ["Guido", "van Rossum"], "difficulty": "easy"}
+{"id": "q-022", "query": "Python 变量需要声明类型吗？", "expected_keywords": ["动态类型", "不需要"], "difficulty": "medium"}
+{"id": "q-023", "query": "Python 集合用 set 还是 list？", "expected_keywords": ["set"], "difficulty": "medium"}
+{"id": "q-024", "query": "Python 元组和列表的区别", "expected_keywords": ["tuple", "list"], "difficulty": "hard"}
+{"id": "q-025", "query": "Python 在线学习平台有哪些？", "expected_keywords": ["Codecademy", "Coursera"], "difficulty": "medium"}
+# 干扰 query（故意用 "语言" 而不是 "Python"，看 Rerank 能不能把 Python chunk 排前面）
+{"id": "noise-026", "query": "解释型的高级语言有哪些特点？", "expected_keywords": ["解释型", "可读性"], "difficulty": "hard"}
+{"id": "noise-027", "query": "Guido van Rossum 还发明了什么语言？", "expected_keywords": ["Python", "1991"], "difficulty": "hard"}
+{"id": "noise-028", "query": "面向对象编程语言哪个最好学？", "expected_keywords": ["Python", "面向对象"], "difficulty": "hard"}
+{"id": "noise-029", "query": "哪些语言适合写爬虫？", "expected_keywords": ["Python", "爬虫"], "difficulty": "hard"}
+{"id": "noise-030", "query": "Pygame 是什么语言的游戏库？", "expected_keywords": ["Pygame", "Python"], "difficulty": "hard"}

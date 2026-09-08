@@ -1,0 +1,292 @@
+[
+  {
+    "label": "vector_only_rerank_no",
+    "total": 30,
+    "recall_at_k": 1.0,
+    "mrr": 0.8678,
+    "avg_latency_ms": 2328.3,
+    "by_difficulty": {
+      "easy": {
+        "count": 9,
+        "recall_at_k": 1.0,
+        "mrr": 1.0
+      },
+      "medium": {
+        "count": 12,
+        "recall_at_k": 1.0,
+        "mrr": 0.8611
+      },
+      "hard": {
+        "count": 9,
+        "recall_at_k": 1.0,
+        "mrr": 0.7444
+      }
+    },
+    "weights": [
+      1.0,
+      0.0
+    ],
+    "use_rerank": false
+  },
+  {
+    "label": "vector_only_rerank",
+    "total": 30,
+    "recall_at_k": 1.0,
+    "mrr": 0.925,
+    "avg_latency_ms": 3819.8,
+    "by_difficulty": {
+      "easy": {
+        "count": 9,
+        "recall_at_k": 1.0,
+        "mrr": 1.0
+      },
+      "medium": {
+        "count": 12,
+        "recall_at_k": 1.0,
+        "mrr": 0.9167
+      },
+      "hard": {
+        "count": 9,
+        "recall_at_k": 1.0,
+        "mrr": 0.8611
+      }
+    },
+    "weights": [
+      1.0,
+      0.0
+    ],
+    "use_rerank": true
+  },
+  {
+    "label": "v0.7_b0.3_rerank_no",
+    "total": 30,
+    "recall_at_k": 1.0,
+    "mrr": 0.8678,
+    "avg_latency_ms": 2337.3,
+    "by_difficulty": {
+      "easy": {
+        "count": 9,
+        "recall_at_k": 1.0,
+        "mrr": 1.0
+      },
+      "medium": {
+        "count": 12,
+        "recall_at_k": 1.0,
+        "mrr": 0.8611
+      },
+      "hard": {
+        "count": 9,
+        "recall_at_k": 1.0,
+        "mrr": 0.7444
+      }
+    },
+    "weights": [
+      0.7,
+      0.3
+    ],
+    "use_rerank": false
+  },
+  {
+    "label": "v0.7_b0.3_rerank",
+    "total": 30,
+    "recall_at_k": 1.0,
+    "mrr": 0.925,
+    "avg_latency_ms": 2879.5,
+    "by_difficulty": {
+      "easy": {
+        "count": 9,
+        "recall_at_k": 1.0,
+        "mrr": 1.0
+      },
+      "medium": {
+        "count": 12,
+        "recall_at_k": 1.0,
+        "mrr": 0.9167
+      },
+      "hard": {
+        "count": 9,
+        "recall_at_k": 1.0,
+        "mrr": 0.8611
+      }
+    },
+    "weights": [
+      0.7,
+      0.3
+    ],
+    "use_rerank": true
+  },
+  {
+    "label": "v0.5_b0.5_rerank_no",
+    "total": 30,
+    "recall_at_k": 1.0,
+    "mrr": 0.8706,
+    "avg_latency_ms": 2339.3,
+    "by_difficulty": {
+      "easy": {
+        "count": 9,
+        "recall_at_k": 1.0,
+        "mrr": 1.0
+      },
+      "medium": {
+        "count": 12,
+        "recall_at_k": 1.0,
+        "mrr": 0.8611
+      },
+      "hard": {
+        "count": 9,
+        "recall_at_k": 1.0,
+        "mrr": 0.7537
+      }
+    },
+    "weights": [
+      0.5,
+      0.5
+    ],
+    "use_rerank": false
+  },
+  {
+    "label": "v0.5_b0.5_rerank",
+    "total": 30,
+    "recall_at_k": 1.0,
+    "mrr": 0.925,
+    "avg_latency_ms": 2867.3,
+    "by_difficulty": {
+      "easy": {
+        "count": 9,
+        "recall_at_k": 1.0,
+        "mrr": 1.0
+      },
+      "medium": {
+        "count": 12,
+        "recall_at_k": 1.0,
+        "mrr": 0.9167
+      },
+      "hard": {
+        "count": 9,
+        "recall_at_k": 1.0,
+        "mrr": 0.8611
+      }
+    },
+    "weights": [
+      0.5,
+      0.5
+    ],
+    "use_rerank": true
+  },
+  {
+    "label": "v0.3_b0.7_rerank_no",
+    "total": 30,
+    "recall_at_k": 1.0,
+    "mrr": 0.8694,
+    "avg_latency_ms": 2335.4,
+    "by_difficulty": {
+      "easy": {
+        "count": 9,
+        "recall_at_k": 1.0,
+        "mrr": 1.0
+      },
+      "medium": {
+        "count": 12,
+        "recall_at_k": 1.0,
+        "mrr": 0.8611
+      },
+      "hard": {
+        "count": 9,
+        "recall_at_k": 1.0,
+        "mrr": 0.75
+      }
+    },
+    "weights": [
+      0.3,
+      0.7
+    ],
+    "use_rerank": false
+  },
+  {
+    "label": "v0.3_b0.7_rerank",
+    "total": 30,
+    "recall_at_k": 1.0,
+    "mrr": 0.925,
+    "avg_latency_ms": 2861.9,
+    "by_difficulty": {
+      "easy": {
+        "count": 9,
+        "recall_at_k": 1.0,
+        "mrr": 1.0
+      },
+      "medium": {
+        "count": 12,
+        "recall_at_k": 1.0,
+        "mrr": 0.9167
+      },
+      "hard": {
+        "count": 9,
+        "recall_at_k": 1.0,
+        "mrr": 0.8611
+      }
+    },
+    "weights": [
+      0.3,
+      0.7
+    ],
+    "use_rerank": true
+  },
+  {
+    "label": "bm25_only_rerank_no",
+    "total": 30,
+    "recall_at_k": 1.0,
+    "mrr": 0.9,
+    "avg_latency_ms": 2329.9,
+    "by_difficulty": {
+      "easy": {
+        "count": 9,
+        "recall_at_k": 1.0,
+        "mrr": 0.8889
+      },
+      "medium": {
+        "count": 12,
+        "recall_at_k": 1.0,
+        "mrr": 0.9167
+      },
+      "hard": {
+        "count": 9,
+        "recall_at_k": 1.0,
+        "mrr": 0.8889
+      }
+    },
+    "weights": [
+      0.0,
+      1.0
+    ],
+    "use_rerank": false
+  },
+  {
+    "label": "bm25_only_rerank",
+    "total": 30,
+    "recall_at_k": 1.0,
+    "mrr": 0.925,
+    "avg_latency_ms": 2882.6,
+    "by_difficulty": {
+      "easy": {
+        "count": 9,
+        "recall_at_k": 1.0,
+        "mrr": 1.0
+      },
+      "medium": {
+        "count": 12,
+        "recall_at_k": 1.0,
+        "mrr": 0.9167
+      },
+      "hard": {
+        "count": 9,
+        "recall_at_k": 1.0,
+        "mrr": 0.8611
+      }
+    },
+    "weights": [
+      0.0,
+      1.0
+    ],
+    "use_rerank": true
+  }
+]

@@ -1,0 +1,49 @@
+# RAG 评估集 v3：KB 加了 5 个不相关主题（烹饪/旅游/摄影/园艺/健身）
+# 目的：让 Top-5 不够用，recall 真的拉开差距，看 Rerank 价值
+# 运行：python -m evals.rag_eval --kb knowledge_base --queries evals/rag_eval_set_v3.jsonl --sweep
+
+# ===== Python 编程题（标准） =====
+{"id": "py-001", "query": "Python 是什么时候发布的？", "expected_keywords": ["1991", "Guido"], "difficulty": "easy"}
+{"id": "py-002", "query": "Python 的设计理念是什么？", "expected_keywords": ["可读性", "简洁"], "difficulty": "easy"}
+{"id": "py-003", "query": "Python 用于 Web 开发的框架有哪些？", "expected_keywords": ["Django", "Flask"], "difficulty": "easy"}
+{"id": "py-004", "query": "Python 在 AI 领域用哪些框架？", "expected_keywords": ["TensorFlow", "PyTorch"], "difficulty": "easy"}
+{"id": "py-005", "query": "Python 当前稳定版本是多少？", "expected_keywords": ["3.12"], "difficulty": "medium"}
+{"id": "py-006", "query": "Python 是谁创造的？", "expected_keywords": ["Guido", "van Rossum"], "difficulty": "easy"}
+{"id": "py-007", "query": "Python 适合做游戏开发吗？", "expected_keywords": ["Pygame"], "difficulty": "hard"}
+{"id": "py-008", "query": "Python 可以写自动化脚本吗？", "expected_keywords": ["自动化", "爬虫"], "difficulty": "hard"}
+{"id": "py-009", "query": "Python 元组和列表的区别", "expected_keywords": ["tuple", "list"], "difficulty": "hard"}
+{"id": "py-010", "query": "Python 怎么写 for 循环？", "expected_keywords": ["for", "range"], "difficulty": "medium"}
+
+# ===== 跨语言混淆题（关键词重叠，测试 Rerank） =====
+{"id": "mix-011", "query": "面向对象的高级语言有哪些特点？", "expected_keywords": ["面向对象", "可读性"], "difficulty": "hard"}
+{"id": "mix-012", "query": "哪些语言的数据类型包括 list 和 dict？", "expected_keywords": ["list", "dict"], "difficulty": "hard"}
+{"id": "mix-013", "query": "哪种语言被广泛用于人工智能？", "expected_keywords": ["Python", "TensorFlow"], "difficulty": "hard"}
+{"id": "mix-014", "query": "Python 入门有什么官方文档？", "expected_keywords": ["docs.python.org"], "difficulty": "medium"}
+
+# ===== 烹饪题（看 Rerank 会不会错排到 Python） =====
+{"id": "ck-015", "query": "番茄炒蛋怎么做？", "expected_keywords": ["番茄", "鸡蛋"], "difficulty": "easy"}
+{"id": "ck-016", "query": "新手学做饭用什么调料？", "expected_keywords": ["盐", "酱油"], "difficulty": "easy"}
+{"id": "ck-017", "query": "哪些蔬菜适合爆炒？", "expected_keywords": ["炒"], "difficulty": "hard"}
+
+# ===== 摄影题 =====
+{"id": "ph-018", "query": "新手买什么相机好？", "expected_keywords": ["微单", "单反"], "difficulty": "medium"}
+{"id": "ph-019", "query": "光圈、快门、ISO 怎么配合？", "expected_keywords": ["光圈", "快门", "ISO"], "difficulty": "medium"}
+
+# ===== 健身题 =====
+{"id": "fit-020", "query": "新手每周练几次比较好？", "expected_keywords": ["每周", "训练"], "difficulty": "medium"}
+{"id": "fit-021", "query": "三大复合动作是什么？", "expected_keywords": ["深蹲", "卧推", "硬拉"], "difficulty": "hard"}
+
+# ===== 园艺题 =====
+{"id": "gd-022", "query": "阳台适合种什么花？", "expected_keywords": ["月季", "茉莉"], "difficulty": "medium"}
+
+# ===== 旅游题 =====
+{"id": "tr-023", "query": "国内自由行用什么 App？", "expected_keywords": ["携程", "马蜂窝"], "difficulty": "medium"}
+
+# ===== 跨主题干扰测试（query 提到了多个主题，看 Rerank 选哪个） =====
+{"id": "cross-024", "query": "Python 怎么学习？有什么在线课程？", "expected_keywords": ["Codecademy", "Coursera"], "difficulty": "medium"}
+{"id": "cross-025", "query": "哪些编程语言支持面向对象？", "expected_keywords": ["面向对象"], "difficulty": "hard"}
+{"id": "cross-026", "query": "Python 在数据科学领域的应用", "expected_keywords": ["NumPy", "Pandas"], "difficulty": "medium"}
+{"id": "cross-027", "query": "解释型语言和编译型语言有什么区别？", "expected_keywords": ["解释型"], "difficulty": "hard"}
+{"id": "cross-028", "query": "新手怎么入门编程？", "expected_keywords": ["Python", "简单易学"], "difficulty": "hard"}
+{"id": "cross-029", "query": "动态类型语言有哪些优缺点？", "expected_keywords": ["动态类型"], "difficulty": "hard"}
+{"id": "cross-030", "query": "Python 怎么打印 Hello World？", "expected_keywords": ["print", "Hello"], "difficulty": "medium"}
