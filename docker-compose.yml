@@ -1,42 +1,63 @@
-# docker-compose.yml — 一键起 AI Agent Console 全栈
+# docker-compose.yml — AI Agent Console 生产部署 (v2.0.11)
+#
+# 默认 profile（生产）：
+#   - api     : FastAPI 后端 (Python:3.11-slim, 端口 8000, 不对外暴露)
+#   - web     : Nginx 反向代理 (端口 80, 对外唯一入口)
+#   网络隔离：api 只对 web 暴露，外部只能从 80 访问
+#
+# 数据持久化（Volume）：
+#   - ai_agent_data    : SQLite + 上传文件 + memory store
+#   - ai_agent_uploads : 用户上传文件 (单独卷便于备份)
+#
+# 安全硬化（生产）：
+#   - AI_AGENT_INMEM_CHECKPOINT=0  强制 checkpointer 失败防护生效
+#                                （SqliteSaver 失败时拒绝降级到 MemorySaver，
+#                                 防止静默丢失会话）
+#   - AI_AGENT_DISABLE_PLACEHOLDER_CHECK=1  阻止 placeholder key 跳过 LLM 初始化
+#   - 后端 8000 端口不暴露到 host，仅 web:80 对外
 #
 # 用法：
-#   docker compose up -d --build    # 构建并启动
-#   docker compose down             # 停止
-#   docker compose logs -f backend  # 看后端日志
-#   docker compose exec backend sh  # 进后端容器调试
+#   cp .env.example .env   # 编辑填入 LLM / LangSmith 凭据
+#   ./deploy.sh            # 一键构建并启动（等价于 docker compose up -d --build）
+#   docker compose logs -f web    # 查看 nginx 访问日志
+#   docker compose logs -f api    # 查看后端日志
+#   docker compose down           # 停止（保留卷）
+#   docker compose down -v        # 停止并删除卷（清空数据）
 #
-# 端口：
-#   - 8000: FastAPI (web_ui.py) + 静态前端（dist/）
-#   - 5173: 前端 dev server（开发模式，独立服务）
+# 开发模式（不推荐用于生产）：
+#   docker compose --profile dev up frontend-dev  # Vite hot reload
 #
-# 数据持久化：
-#   - ai_agent_data: sqlite / 上传文件 / memory store
-#
-# 需要的 env（从 .env 读，没有就用 docker-compose 内置的 dummy）：
-#   - OPENAI_API_KEY
-#   - ANTHROPIC_API_KEY (可选)
-#   - DASHSCOPE_API_KEY (可选)
+# E2E 测试：
+#   docker compose --profile test run --rm e2e   # 一次性 Playwright
 
 name: ai-agent-console
 
 services:
-  # ─────────────── 后端（FastAPI + 前端 dist） ───────────────
-  backend:
+  # ═══════════════ 后端（FastAPI，不对外） ═══════════════
+  api:
     build:
       context: .
       dockerfile: web_console/Dockerfile
-    image: ai-agent-console:latest
-    container_name: ai-agent-backend
+    image: ai-agent-console:2.0.11
+    container_name: ai-agent-api
     restart: unless-stopped
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"          # 仅对内暴露，不映射到 host
+    env_file:
+      - .env            # 读取根目录 .env（OPENAI_API_KEY / LANGCHAIN_* / 等）
     environment:
-      # LLM 凭据从 .env 读，没有就走 dummy
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-sk-dummy-for-local-dev}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
-      SERPAPI_API_KEY: ${SERPAPI_API_KEY:-}
+      # ───── 生产安全硬化（env_file 之外的强制项） ─────
+      # 显式 =0：让 SqliteSaver Checkpoint 失败时直接 RuntimeError，
+      # 不静默降级到内存模式（防止容器重启后会话丢失但仍"看起来工作"）
+      AI_AGENT_INMEM_CHECKPOINT: "0"
+      # 显式 =1：拒绝 placeholder key 跳过 LLM 初始化（启动时即失败）
+      AI_AGENT_DISABLE_PLACEHOLDER_CHECK: "1"
+      # 数据 / 上传路径
+      DATA_ROOT: /app/data
+      UPLOAD_ROOT: /app/ai_agent/uploads
+      PYTHONUNBUFFERED: "1"
+      PYTHONPATH: /app
+      # 日志
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     volumes:
       - ai_agent_data:/app/data
@@ -46,11 +67,34 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 15s
+    networks:
+      - ai-net
+    # 注意：api 没有 ports，对外不可见
 
-  # ─────────────── 前端 dev server（可选） ───────────────
-  # 平时不需要；只有改前端代码并想 hot reload 时用：
-  #   docker compose --profile dev up frontend-dev
+  # ═══════════════ Nginx 反向代理（唯一对外入口） ═══════════════
+  web:
+    build:
+      context: .
+      dockerfile: web_console/Dockerfile.nginx
+    image: ai-agent-web:2.0.11
+    container_name: ai-agent-web
+    restart: unless-stopped
+    ports:
+      - "80:80"          # 生产暴露 80（HTTPS 由前置 LB / CDN 处理）
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      - ai-net
+
+  # ─────────────── 前端 dev server（开发模式，可选） ───────────────
   frontend-dev:
     image: node:20-alpine
     container_name: ai-agent-frontend-dev
@@ -65,12 +109,12 @@ services:
     environment:
       - VITE_API_BASE_URL=http://localhost:8000
     depends_on:
-      backend:
+      api:
         condition: service_healthy
+    networks:
+      - ai-net
 
-  # ─────────────── E2E 测试 runner ───────────────
-  # 用 Playwright 跑端到端测试（一次性）：
-  #   docker compose --profile test run --rm e2e
+  # ─────────────── E2E 测试 runner（一次性） ───────────────
   e2e:
     image: mcr.microsoft.com/playwright:v1.49.0-jammy
     container_name: ai-agent-e2e
@@ -81,11 +125,13 @@ services:
       - ./web_console:/app/web_console
       - frontend_dev_node_modules:/app/web_console/node_modules
     environment:
-      - E2E_BASE_URL=http://backend:8000
+      - E2E_BASE_URL=http://web:80
       - CI=1
     depends_on:
-      backend:
+      web:
         condition: service_healthy
+    networks:
+      - ai-net
 
 volumes:
   ai_agent_data:
@@ -96,5 +142,6 @@ volumes:
     driver: local
 
 networks:
-  default:
+  ai-net:
     name: ai-agent-network
+    driver: bridge
