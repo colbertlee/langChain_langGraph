@@ -118,6 +118,44 @@ _INTENT_TO_IMPORTANCE: Dict[str, int] = {
 }
 
 
+# P2-W7：助手输出写入长期记忆时的截断长度（可配置）
+# 解析优先级：环境变量 MEMORY_SUMMARY_CHARS > 类属性 > 默认值 500
+_DEFAULT_MEMORY_SUMMARY_CHARS = 500
+
+
+def _resolve_memory_summary_chars() -> int:
+    """解析助手输出截断长度。
+
+    优先级：
+      1. 环境变量 MEMORY_SUMMARY_CHARS（必须是 > 0 的整数）
+      2. 类属性 AIAgent.MEMORY_SUMMARY_CHARS（默认 _DEFAULT_MEMORY_SUMMARY_CHARS）
+      3. fallback 到 _DEFAULT_MEMORY_SUMMARY_CHARS
+    """
+    env_val = os.environ.get("MEMORY_SUMMARY_CHARS", "").strip()
+    if env_val:
+        try:
+            n = int(env_val)
+            if n > 0:
+                return n
+            logger.warning(
+                f"MEMORY_SUMMARY_CHARS={env_val} 必须为正整数，fallback 到默认值"
+            )
+        except ValueError:
+            logger.warning(
+                f"MEMORY_SUMMARY_CHARS={env_val} 无法解析为整数，fallback 到默认值"
+            )
+    cls_default = getattr(
+        AIAgent, "MEMORY_SUMMARY_CHARS", _DEFAULT_MEMORY_SUMMARY_CHARS
+    )
+    try:
+        n = int(cls_default)
+        if n > 0:
+            return n
+    except (TypeError, ValueError):
+        pass
+    return _DEFAULT_MEMORY_SUMMARY_CHARS
+
+
 def _build_provider_base_url(provider: str) -> Optional[str]:
     """根据 provider 返回对应的 base_url；OpenAI 返回 None 使用官方端点。
 
@@ -176,6 +214,11 @@ class AIAgent:
     - 系统提示在 init_agent 中基于 self.tools 动态生成。
     - run / run_stream 使用 1.x 的 {"messages": [...]} 输入格式。
     """
+
+    # P2-W7：助手输出写入长期记忆时的默认截断长度（写入 memory_store 前截断）。
+    # 优先级：env MEMORY_SUMMARY_CHARS > 本类属性 > 500。
+    # 运行时通过 _resolve_memory_summary_chars() 解析，子类可覆写本类属性。
+    MEMORY_SUMMARY_CHARS: int = _DEFAULT_MEMORY_SUMMARY_CHARS
 
     def __init__(self):
         self.model_provider = MODEL_PROVIDER
@@ -1044,7 +1087,10 @@ class AIAgent:
         return _INTENT_TO_IMPORTANCE.get(intent, MemoryImportance.MEDIUM.value)
 
     def _record_assistant_turn(self, output: str, intent: str, importance: int) -> None:
-        """记录助手输出到上下文与记忆，并按需触发整合。"""
+        """记录助手输出到上下文与记忆，并按需触发整合。
+
+        P2-W7：截断长度由 ``_resolve_memory_summary_chars()`` 决定（env > 类属性 > 500）。
+        """
         if not output:
             return
         try:
@@ -1056,8 +1102,12 @@ class AIAgent:
         except Exception as e:
             logger.warning(f"Failed to record assistant msg to context: {e}")
 
+        # P2-W7：使用可配置截断长度（默认 500 chars，向后兼容）。
+        max_chars = _resolve_memory_summary_chars()
         try:
-            truncated = output if len(output) <= 500 else output[:500] + "..."
+            truncated = (
+                output if len(output) <= max_chars else output[:max_chars] + "..."
+            )
             self.memory_store.add(
                 content=f"助手: {truncated}",
                 session_id=self.current_session_id,

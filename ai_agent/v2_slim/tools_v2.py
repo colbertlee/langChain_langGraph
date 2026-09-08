@@ -74,13 +74,22 @@ def file_ops(
         base.write_text(content, encoding="utf-8")
         return f"✅ WRITE {path} ({len(content)} chars)"
     if subcommand == "list":
-        items = sorted(base.rglob("*") if recursive else base.iterdir())
-        return "\n".join(str(p) for p in items) or "<empty>"
+        # P2-R4：捕获 PermissionError / OSError，统一返回降级提示，
+        # 由 LLM 决定是否改用其它路径 / 工具；不再让 ToolMessage 让 LLM 误判为 fatal。
+        try:
+            items = sorted(base.rglob("*") if recursive else base.iterdir())
+            return "\n".join(str(p) for p in items) or "<empty>"
+        except (PermissionError, OSError) as e:
+            return f"❌ 目录访问被拒绝或无权限: {e}"
     if subcommand == "glob":
         if pattern is None:
             raise ValueError("file_ops.glob 需要 pattern 参数")
-        matches = list(base.glob(pattern)) if not recursive else list(base.rglob(pattern))
-        return "\n".join(str(p) for p in matches) or "<empty>"
+        # P2-R4：glob 同样捕获 PermissionError / OSError
+        try:
+            matches = list(base.glob(pattern)) if not recursive else list(base.rglob(pattern))
+            return "\n".join(str(p) for p in matches) or "<empty>"
+        except (PermissionError, OSError) as e:
+            return f"❌ 目录访问被拒绝或无权限: {e}"
     if subcommand == "delete":
         if base.is_file():
             base.unlink()
