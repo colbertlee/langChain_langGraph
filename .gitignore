@@ -30,6 +30,7 @@ e2e/**/*-snapshots/*-diff.png
 Thumbs.db
 
 # Local env
+.env
 .env.local
 .env.development.local
 .env.test.local
