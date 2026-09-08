@@ -10,6 +10,36 @@
 **Commit**: `refactor(agent): 增强上下文结构化注入与防御栈 (P0/P1 修复闭环)`
 **诊断依据**: 内部「Agent 自动化运行与状态验证」巡检（2026-09-08）→ 5 维诊断报告。
 
+### 闭环补丁（R4 / W7 / R7 / Stash 清理）
+
+- **R4 — `file_ops` 权限 / 目录拒绝防御**：
+  `v2_slim/tools_v2.py::file_ops.list` / `file_ops.glob` 捕获
+  `(PermissionError, OSError)`，命中时统一返回
+  `❌ 目录访问被拒绝或无权限: {e}`，由 LLM 决定降级路径（不再让
+  ToolMessage 让模型误判为 fatal）。调用方契约不变。
+- **W7 — 记忆截断可配置**：`agent.py::_resolve_memory_summary_chars()`
+  引入优先级 `env MEMORY_SUMMARY_CHARS > AIAgent.MEMORY_SUMMARY_CHARS > 500`，
+  `_record_assistant_turn` 改用可配置截断；非正整数 / 非法值自动 fallback
+  并打印 WARNING。运维无需改代码即可按上下文窗口调优。
+- **R7 — E2E 沙箱测试一键联调脚本**：
+  - `web_console/scripts/start-e2e-stack.sh`（POSIX / Linux / macOS /
+    Git-Bash）：后台启动 Vite (5173) + uvicorn (8000) → 轮询端口就绪
+    → 运行 `web_console/e2e_no_browser.mjs` → SIGTERM → 5s → SIGKILL
+    优雅清理。环境变量：`KEEP_RUNNING` / `SKIP_FRONTEND` / `SKIP_BACKEND`
+    / `FRONTEND_PORT` / `BACKEND_PORT` / `E2E_TIMEOUT`，端口空闲时复用。
+  - `web_console/scripts/start-e2e-stack.ps1`（Windows PowerShell）：
+    等价参数集（`-KeepRunning` / `-SkipFrontend` / `-SkipBackend` /
+    `-FrontendPort` / `-BackendPort` / `-E2ETimeout`），通过
+    `Start-Process` + `WaitForExit` 管理子进程，trap 保证退出时清理。
+  - 退出码：`0 E2E 全 PASS | 1 E2E FAIL | 2 端口就绪超时 | 3 依赖缺失`。
+- **Stash 清理归档**：v2.0.10 → v2.0.11 收尾阶段的工作树残留（evals /
+  knowledge_base / `_llm_agent_test.py` / `check_models.py` / `llm_minimax.py`
+  / `restart-app.{sh,ps1,bat}` / `stop-app.{sh,ps1,bat}` /
+  `temperature_chart.html` / `test_request.json` /
+  `web_console/e2e_no_browser.mjs`）一次性归档为 `chore:` 提交，
+  `stash@{0}`（post-v2.0.10 remnants 过期快照）已 drop。
+  `stash@{1}`（debug session leftovers）保留供后续单独审视。
+
 ### 修复项（P0 / P1 全量闭环）
 
 - **P0 — 上下文结构化 Message 隔离**：`_build_messages_payload` 新增，发送
@@ -55,6 +85,9 @@
 
 - `pytest --no-cov`（全量）：**633 passed / 0 failed / 2 deselected**（≈ 82.9s）。
 - `_llm_agent_test.py` 沙箱：12 passed / 0 failed（含真实 minimax 端到端）。
+- R7 联调栈：`bash web_console/scripts/start-e2e-stack.sh` 语法检查
+  `bash -n` OK；`SKIP_FRONTEND=1 SKIP_BACKEND=1` 跑通前置检查 + trap
+  清理路径；PowerShell `Parser.ParseFile` 通过。
 - 退出码：0。
 
 ---
