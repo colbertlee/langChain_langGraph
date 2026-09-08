@@ -148,6 +148,10 @@ def _reset_agent_state_between_tests(request, monkeypatch):
     # 强制启用 placeholder 短路（防止某些 module-level os.environ["AI_AGENT_DISABLE_PLACEHOLDER_CHECK"]="0"
     # 永久污染进程 env；如 test_app_e2e.py:19）
     monkeypatch.setenv("AI_AGENT_DISABLE_PLACEHOLDER_CHECK", "1")
+    # 允许在测试中显式 opt-in 内存模式 checkpointer，避免 SqliteSaver 在某些
+    # CI / 受限环境下初始化失败时让 AIAgent() 直接抛 RuntimeError。
+    # 生产环境默认走 SqliteSaver；显式设置该变量 = 显式降级为 MemorySaver。
+    monkeypatch.setenv("AI_AGENT_INMEM_CHECKPOINT", "1")
     yield
     # 后置 reset（避免下一个测试看到本测试的状态）
     try:

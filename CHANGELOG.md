@@ -4,6 +4,61 @@
 
 ---
 
+## [v2.0.11-patch] - 2026-09-08
+
+**类型**: Hotfix · **SemVer**: PATCH（无 BREAKING）
+**Commit**: `refactor(agent): 增强上下文结构化注入与防御栈 (P0/P1 修复闭环)`
+**诊断依据**: 内部「Agent 自动化运行与状态验证」巡检（2026-09-08）→ 5 维诊断报告。
+
+### 修复项（P0 / P1 全量闭环）
+
+- **P0 — 上下文结构化 Message 隔离**：`_build_messages_payload` 新增，发送
+  `[SystemMessage, HumanMessage]` 替代旧的「单条 HumanMessage 字符串拼接」。
+  SystemMessage 仅承载 RAG 检索 + 历史记忆片段（标签 `【背景上下文与历史记忆】` /
+  `【当前会话上下文】`），HumanMessage 仅承载经 `_apply_user_prompt_template` 安全
+  重写后的纯净 user_input。彻底消除「上下文被当作用户问题覆盖 System Prompt」的
+  多轮指令跟随退化。
+- **P0 — Tool 工具异常防御栈**：
+  - `v2_slim/tools_v2.py::web_search.search` 捕获 `requests.RequestException` /
+    SerpAPI `results["error"]`，统一返回 `❌ 搜索服务暂时不可用: {msg}`，由 LLM
+    决定降级路径，不再让 ToolMessage 让 LLM 误判为 fatal。
+- **P1 — SQL 工具安全硬化**：
+  - `v2_slim/tools_v2.py::data_query.sql` 引入 SQL 白名单（仅 `SELECT / WITH /
+    PRAGMA / EXPLAIN`），捕获 `sqlite3.DatabaseError / OperationalError`，防止
+    Agent 触发破坏性语句。
+- **P1 — Checkpointer 安全降级开关**：
+  - `_init_checkpointer` 重排为「先尝试 SqliteSaver → 失败再判 opt-in」：
+    默认失败时直接 `raise RuntimeError("SqliteSaver Checkpoint store unavailable")`
+    阻止静默降级；仅当调用参数 `memory_fallback=True` 或 env
+    `AI_AGENT_INMEM_CHECKPOINT ∈ {1, true, yes, on}` 时才回退 `MemorySaver` 并
+    打 `WARNING("Checkpointer 初始化失败，已显式降级为内存模式")`。
+  - `tests/conftest.py` autouse fixture 注入 `AI_AGENT_INMEM_CHECKPOINT=1`，
+    保证测试环境 SqliteSaver 不可用时仍能走 MemorySaver 路径，633 个用例不受影响。
+- **P1 — Memory Token 预算限流**：
+  - `memory_store.get_context(query, session_id, max_tokens=None)` 新增可选
+    `max_tokens` 参数；agent.py 调用处统一追加 `max_tokens=1000`，与
+    `context_manager._join_and_truncate` 字符预算策略对齐，超出截断并标记
+    `[已截断]`，杜绝长对话 Token 预算溢出。
+- **P1 — 降级路径同步加固**：
+  - `_safe_memory_hint` 同步追加 `max_tokens=1000`，确保 LLM 异常降级路径同样
+    受预算约束。
+
+### 接口影响
+
+- **新增**：`AIAgent._build_messages_payload(user_input, final_input) -> List[Any]`。
+- **扩展**：`AIAgent._init_checkpointer(memory_fallback: Optional[bool] = None)`。
+- **扩展**：`MemoryStore.get_context(query, session_id, max_tokens: Optional[int] = None)`。
+- `_apply_user_prompt_template(user_input, enhanced_input) -> str` 签名 / 行为
+  **完全保持向后兼容**，`prompt_registry` 与 `test_prompts_api.py` 接口不变。
+
+### 测试
+
+- `pytest --no-cov`（全量）：**633 passed / 0 failed / 2 deselected**（≈ 82.9s）。
+- `_llm_agent_test.py` 沙箱：12 passed / 0 failed（含真实 minimax 端到端）。
+- 退出码：0。
+
+---
+
 ## [v2.0.10] - 2026-09-07
 
 **类型**: Cleanup · **SemVer**: PATCH (含 1 个 BREAKING)

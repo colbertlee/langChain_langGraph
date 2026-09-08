@@ -758,26 +758,47 @@ class UnifiedMemoryStore:
             **kwargs
         )
     
-    def get_context(self, query: str, session_id: str) -> str:
-        """获取增强上下文"""
+    def get_context(
+        self,
+        query: str,
+        session_id: str,
+        max_tokens: Optional[int] = None,
+    ) -> str:
+        """获取增强上下文。
+
+        Args:
+            query: 当前用户输入（用于检索相似长期记忆 + 短期注意力聚焦）
+            session_id: 会话 id
+            max_tokens: 可选 token 预算上限（P1 增量）；超出时按字符预算截断并追加
+                        标记，避免长对话下 RAG 检索结果膨胀。
+        """
         # 1. 获取注意力聚焦的短期记忆
         attention_memories = self.short_term.get_attention_focused(session_id, query)
-        
+
         # 2. 检索相关的长期记忆
         long_term_context = self.consolidator.retrieve_context(query, session_id)
-        
+
         # 3. 构建增强上下文
         context_parts = []
-        
+
         if long_term_context:
             context_parts.append(long_term_context)
-        
+
         if attention_memories:
             context_parts.append("【当前会话关键信息】")
             for mem in attention_memories[:5]:
                 context_parts.append(f"- {mem.content[:100]}...")
-        
-        return "\n".join(context_parts) if context_parts else ""
+
+        joined = "\n".join(context_parts) if context_parts else ""
+
+        # 4. P1：按 max_tokens 限流（粗略字符预算：1 token ≈ 2 字符，英文 4，中文 1.5）
+        if max_tokens and joined:
+            # 与 context_manager._join_and_truncate 保持一致的简单换算
+            tokens_per_char = 0.5
+            max_chars = int(max_tokens / tokens_per_char)
+            if len(joined) > max_chars:
+                joined = joined[: max(0, max_chars - 12)] + "\n[已截断]"
+        return joined
     
     def consolidate(self, session_id: str) -> int:
         """执行记忆整合（含衰减 + 短期→长期迁移）。

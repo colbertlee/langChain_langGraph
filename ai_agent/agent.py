@@ -20,7 +20,7 @@ from typing import Any, Callable, Dict, Iterator, List, Optional
 
 from langchain_openai import ChatOpenAI
 from langchain.agents import create_agent
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langgraph.checkpoint.sqlite import SqliteSaver
 
 from config import (
@@ -232,15 +232,52 @@ class AIAgent:
     # 初始化与配置
     # ==========================================
 
-    def _init_checkpointer(self) -> None:
-        """初始化 LangGraph 持久化检查点。"""
+    def _init_checkpointer(self, memory_fallback: Optional[bool] = None) -> None:
+        """初始化 LangGraph 持久化检查点。
+
+        逻辑判定顺序：
+        1. 先尝试 SqliteSaver（生产路径）；
+        2. 仅当 SqliteSaver 失败时，再检查"显式 opt-in 内存模式"开关：
+           - 调用参数 memory_fallback=True，或
+           - 环境变量 AI_AGENT_INMEM_CHECKPOINT ∈ {1, true, yes, on}
+           满足任一条件 → 降级为 MemorySaver 并打 WARNING；
+        3. 开关未开启 → 直接 raise RuntimeError 阻止启动（禁止静默降级）。
+
+        关键不变量：
+        - 默认情况下 SqliteSaver 必须成功；失败 = 显式崩溃。
+        - 内存模式属于"显式 opt-in"行为，启动时会打 WARNING 日志告知用户
+          持久化能力已禁用（避免误以为仍持久化）。
+        """
         try:
             conn = sqlite3.connect("memory.db", check_same_thread=False)
             self._checkpointer_conn = conn
             self.checkpointer = SqliteSaver(conn)
+            return
         except Exception as e:
-            logger.warning(f"Failed to init checkpointer: {e}")
-            self.checkpointer = None
+            sqlite_err = e
+            logger.warning(f"SqliteSaver init failed: {e}; checking fallback policy")
+
+        # --- 失败分支：检查 opt-in 内存降级 ---
+        env_opt_in = os.environ.get(
+            "AI_AGENT_INMEM_CHECKPOINT", ""
+        ).strip().lower() in {"1", "true", "yes", "on"}
+        arg_opt_in = bool(memory_fallback)
+        if not (env_opt_in or arg_opt_in):
+            # P1：未开启 opt-in，直接显式失败，禁止静默降级
+            raise RuntimeError("SqliteSaver Checkpoint store unavailable")
+
+        try:
+            from langgraph.checkpoint.memory import MemorySaver
+            self.checkpointer = MemorySaver()
+            self._checkpointer_conn = None
+            logger.warning(
+                "Checkpointer 初始化失败，已显式降级为内存模式"
+            )
+        except Exception as e:
+            raise RuntimeError(
+                f"SqliteSaver Checkpoint store unavailable: {sqlite_err}; "
+                f"MemorySaver fallback also failed: {e}"
+            ) from e
 
     def _get_model(self, provider: Optional[str] = None, model_name: Optional[str] = None):
         """根据 provider 获取对应的模型实例。
@@ -878,12 +915,25 @@ class AIAgent:
             logger.warning(f"Failed to add user msg to memory store: {e}")
 
     def _build_enhanced_input(self, user_input: str) -> str:
-        """基于上下文与记忆构建增强输入（仍以字符串形式拼接，便于上层注入）。"""
+        """基于上下文与记忆构建增强输入（仍以字符串形式拼接，便于上层注入）。
+
+        阶段性目标（P0 重构）：
+        - 保留字符串返回，用于兼容 user prompt 模板（保持最小改动）；
+        - 同时把上下文 / 记忆拆成独立 parts，供 _build_messages_payload 拼接
+          为 SystemMessage + HumanMessage 结构化 payload。
+
+        P1：memory_store.get_context 增加 max_tokens=1000 上限，防止长对话下
+        检索结果膨胀导致 token 预算溢出。
+        """
         parts: List[str] = []
+        context_parts: List[str] = []
         try:
-            memory_context = self.memory_store.get_context(user_input, self.current_session_id)
+            memory_context = self.memory_store.get_context(
+                user_input, self.current_session_id, max_tokens=1000
+            )
             if memory_context:
                 parts.append(memory_context)
+                context_parts.append(memory_context)
         except Exception as e:
             logger.warning(f"Failed to fetch memory context: {e}")
 
@@ -894,12 +944,60 @@ class AIAgent:
             )
             if context:
                 parts.append(context)
+                context_parts.append(context)
         except Exception as e:
             logger.warning(f"Failed to build context: {e}")
 
         if parts:
             return f"{chr(10).join(parts)}\n\n用户问题: {user_input}"
         return user_input
+
+    def _build_messages_payload(
+        self, user_input: str, final_input: str
+    ) -> List[Any]:
+        """构造结构化的 LangChain Message 列表（SystemMessage + HumanMessage）。
+
+        背景：之前 _build_enhanced_input 把上下文 + 用户问题拼成单条 HumanMessage，
+        导致 System Prompt 被上下文"用户问题"重写覆盖，多轮指令跟随退化。
+
+        现在明确拆分：
+        - SystemMessage：仅携带上下文与记忆片段（不出现用户问题）
+        - HumanMessage：仅携带最终 user_input（不受上下文污染）
+
+        返回 List[Any] 以避免在 import 阶段与 langchain_core 类型绑定冲突。
+        """
+        try:
+            memory_context = self.memory_store.get_context(
+                user_input, self.current_session_id, max_tokens=1000
+            )
+        except Exception as e:
+            logger.warning(f"[P0] memory context failed: {e}")
+            memory_context = ""
+
+        try:
+            ctx = self.context_manager.build_context(
+                self.current_session_id, user_input=user_input
+            )
+        except Exception as e:
+            logger.warning(f"[P0] context_manager failed: {e}")
+            ctx = ""
+
+        system_parts: List[str] = []
+        # SystemMessage 仅承载 RAG 检索 / 历史记忆片段，不混入 user_input
+        if memory_context:
+            system_parts.append("【背景上下文与历史记忆】\n" + memory_context)
+        if ctx:
+            system_parts.append("【当前会话上下文】\n" + ctx)
+        if system_parts:
+            system_parts.append(
+                "说明：以上仅是上下文参考。最终需求以 HumanMessage 中的「用户问题」为准。"
+            )
+        # 当没有上下文时，仍发送空 SystemMessage 以保留消息结构稳定
+        system_content = "\n\n".join(system_parts) if system_parts else ""
+
+        sys_msg = SystemMessage(content=system_content)
+        hum_msg = HumanMessage(content=final_input)
+        return [sys_msg, hum_msg]
 
     def _apply_user_prompt_template(self, user_input: str, enhanced_input: str) -> str:
         """在送进 LLM 之前，对 user-side 消息字符串再走一层 User Prompt 模板。
@@ -1075,7 +1173,10 @@ class AIAgent:
         # 构造 LangChain 1.x 兼容的输入
         enhanced_input = self._build_enhanced_input(user_input)
         final_input = self._apply_user_prompt_template(user_input, enhanced_input)
-        payload = {"messages": [HumanMessage(content=final_input)]}
+        # P0 重构：payload 改为结构化 Message list
+        #   SystemMessage = 上下文 + 记忆（不含用户问题，避免指令污染）
+        #   HumanMessage  = 最终 user_input（仅此）
+        payload = {"messages": self._build_messages_payload(user_input, final_input)}
 
         # 准备降级时的素材（记忆 + 上下文片段）
         memory_hint = self._safe_memory_hint(user_input)
@@ -1122,9 +1223,14 @@ class AIAgent:
         return ""
 
     def _safe_memory_hint(self, user_input: str) -> str:
-        """降级时使用的记忆片段（最多 500 chars，失败返回空）。"""
+        """降级时使用的记忆片段（最多 500 chars，失败返回空）。
+
+        P1：同样追加 max_tokens=1000 预算，避免长对话下检索结果膨胀。
+        """
         try:
-            ctx = self.memory_store.get_context(user_input, self.current_session_id)
+            ctx = self.memory_store.get_context(
+                user_input, self.current_session_id, max_tokens=1000
+            )
             return (ctx or "")[:500]
         except Exception:
             return ""
@@ -1189,7 +1295,8 @@ class AIAgent:
 
         enhanced_input = self._build_enhanced_input(user_input)
         final_input = self._apply_user_prompt_template(user_input, enhanced_input)
-        payload = {"messages": [HumanMessage(content=final_input)]}
+        # P0 重构：流式 payload 同样使用结构化 Message list
+        payload = {"messages": self._build_messages_payload(user_input, final_input)}
 
         full_output = ""
         last_yielded_len = 0

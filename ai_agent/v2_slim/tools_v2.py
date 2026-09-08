@@ -114,8 +114,21 @@ def web_search(
             return "请安装 serpapi 包: pip install serpapi"
         if not SERPAPI_API_KEY:
             return "请先配置 SERPAPI_API_KEY 环境变量"
-        search = GoogleSearch({"q": query, "api_key": SERPAPI_API_KEY, "num": num})
-        results = search.get_dict()
+        # P0：捕获网络超时与 SerpAPI 4xx/5xx 错误，统一返回降级提示，
+        # 由 LLM 判断是否改用其它方式获取信息（避免 ToolMessage 让 LLM 误判为 fatal）。
+        try:
+            import requests  # type: ignore
+            _REQUEST_EXC = (requests.RequestException, Exception)
+        except ImportError:
+            _REQUEST_EXC = (Exception,)
+        try:
+            search = GoogleSearch({"q": query, "api_key": SERPAPI_API_KEY, "num": num})
+            results = search.get_dict()
+        except _REQUEST_EXC as e:
+            return f"❌ 搜索服务暂时不可用: {e}"
+        if "error" in results and not results.get("organic_results"):
+            # SerpAPI 在 4xx/5xx 时会把错误塞进 results["error"]
+            return f"❌ 搜索服务暂时不可用: {results.get('error', 'unknown error')}"
         if "organic_results" in results:
             summaries = []
             for r in results["organic_results"][:num]:
@@ -184,12 +197,32 @@ def data_query(
         return f"❌ 数据源不存在: {source}"
     try:
         if subcommand == "sql":
-            conn = sqlite3.connect(source)
-            cur = conn.execute(query or "SELECT 1")
-            cols = [d[0] for d in cur.description] if cur.description else []
-            rows = [dict(zip(cols, r)) for r in cur.fetchmany(limit)]
-            conn.close()
-            return json.dumps(rows, ensure_ascii=False, default=str)
+            # P1：SQL 安全校验 — 仅允许 SELECT / WITH (CTE) 读查询，
+            # 防止 INSERT/UPDATE/DELETE/DROP 等破坏性语句被 Agent 触发。
+            raw_sql = (query or "SELECT 1").strip()
+            if not raw_sql:
+                return "❌ SQL 不能为空"
+            normalized = raw_sql.lstrip("; \t\n").rstrip("; \t\n")
+            head_token = normalized.split(None, 1)[0].upper() if normalized else ""
+            if head_token not in {"SELECT", "WITH", "PRAGMA", "EXPLAIN"}:
+                return (
+                    f"❌ 仅允许只读查询（SELECT / WITH / PRAGMA / EXPLAIN），"
+                    f"拒绝执行: {head_token or '<empty>'}"
+                )
+            try:
+                conn = sqlite3.connect(source)
+                try:
+                    cur = conn.execute(raw_sql)
+                    cols = [d[0] for d in cur.description] if cur.description else []
+                    rows = [dict(zip(cols, r)) for r in cur.fetchmany(limit)]
+                    return json.dumps(rows, ensure_ascii=False, default=str)
+                finally:
+                    conn.close()
+            except (sqlite3.DatabaseError, sqlite3.OperationalError) as e:
+                # P1：捕获 sqlite 异常并以可读形式返回 ToolMessage
+                return f"❌ SQL 执行失败: {e}"
+            except Exception as e:
+                return f"❌ SQL 执行异常: {e}"
         if subcommand == "csv":
             import csv as _csv
             with open(source, "r", encoding="utf-8") as f:
