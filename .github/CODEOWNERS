@@ -9,7 +9,7 @@
 # ─────────────── 后端核心（高敏感） ───────────────
 /ai_agent/agent.py          @colbertlee
 /ai_agent/api.py            @colbertlee
-/ai_agent/web_ui.py         @colbertlee
+/ai_agent/app.py            @colbertlee
 /ai_agent/security.py       @colbertlee
 /ai_agent/config.py         @colbertlee
 /ai_agent/tools.py          @colbertlee

@@ -1,48 +1,64 @@
-# ─────────────── 前端构建阶段 ───────────────
-FROM node:20-alpine AS frontend-builder
+# web_console/Dockerfile — 前端 React/Vite 构建 + Nginx 镜像（前后端彻底解耦）
+#
+# Multi-Stage 构建：
+#   Stage 1 (builder) : node:20-alpine  → npm ci + npm run build，产出 dist/
+#   Stage 2 (runtime) : nginx:1.27-alpine → 仅放入 dist/ + 根目录 nginx.conf
+#
+# 关键点：
+#   - VITE_API_BASE_URL=/api   生产构建时硬编码进前端 bundle（所有 fetch 走同源 /api/*）
+#   - /api/* 在运行时由同容器 nginx 反代到 backend:8000（docker-compose 内的服务名）
+#   - 该镜像不包含 Python/uvicorn；后端由独立的 backend 容器跑
+#
+# 安全加固：
+#   - 通过 build-arg 注入版本/构建日期标签，运维/CI 可查；
+#   - 加 `no-new-privileges` capability（compose 配 security_opt）；
+#   - nginx 容器默认以 root 启动主进程，但 worker 由 master fork 为 nginx 用户，
+#     这是 nginx 官方镜像的标准安全模型。
 
-WORKDIR /app/web_console
+# ──────────────── build args ────────────────
+ARG NODE_VERSION=20-alpine
+ARG NGINX_VERSION=1.27-alpine
 
-# 只 copy 依赖文件以利用 cache
-COPY web_console/package*.json ./
-RUN npm ci --no-audit --no-fund
+# ──────────────── Stage 1: 前端构建 ────────────────
+FROM node:${NODE_VERSION} AS builder
 
-# 复制源码并构建
+WORKDIR /build/web_console
+
+# 关键：生产环境下所有请求走同源 /api，不再硬编码 localhost:8000
+ENV VITE_API_BASE_URL=/api \
+    NODE_ENV=production \
+    NPM_CONFIG_UPDATE_NOTIFIER=false
+
+# 1) 先装依赖（利用 Docker layer cache）
+COPY web_console/package.json web_console/package-lock.json* ./
+RUN npm ci --no-audit --no-fund --prefer-offline
+
+# 2) 复制源码并构建
 COPY web_console/ ./
-RUN npm run build
+RUN npm run build \
+    && echo "Build complete at $(date -u +%FT%TZ)" > dist/.buildinfo
 
-# ─────────────── 后端运行阶段 ───────────────
-FROM python:3.11-slim AS backend
+# ──────────────── Stage 2: Nginx 镜像 ────────────────
+FROM nginx:${NGINX_VERSION} AS runtime
 
-WORKDIR /app
+# 替换默认 server 配置
+RUN rm -f /etc/nginx/conf.d/default.conf
 
-# 系统依赖（sqlite + curl 用于 healthcheck）
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    sqlite3 curl gcc && \
-    rm -rf /var/lib/apt/lists/*
+# 拷贝项目根目录的 nginx.conf（前后端彻底解耦版）
+COPY nginx.conf /etc/nginx/nginx.conf
 
-# 先装 Python 依赖
-COPY ai_agent/requirements.txt /app/ai_agent/
-RUN pip install --no-cache-dir -r /app/ai_agent/requirements.txt
+# 拷贝前端构建产物到 nginx 静态目录
+COPY --from=builder /build/web_console/dist /usr/share/nginx/html
 
-# 复制后端代码
-COPY ai_agent/ /app/ai_agent/
+# 写入版本与构建时间（运维/CI 拉镜像可查）
+ARG BUILD_VERSION=unknown
+ARG BUILD_DATE=unknown
+RUN echo "${BUILD_VERSION} ${BUILD_DATE}" > /usr/share/nginx/html/.version
 
-# 复制前端 dist（由 frontend-builder 构建）
-COPY --from=frontend-builder /app/web_console/dist /app/web_console/dist
-
-# 数据 / 上传目录
-RUN mkdir -p /app/data /app/ai_agent/uploads
-
-# 环境变量
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app \
-    UPLOAD_ROOT=/app/ai_agent/uploads \
-    DATA_ROOT=/app/data
-
-EXPOSE 8000
-
+# 健康检查（alpine 默认带 wget）
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-    CMD curl -fsS http://127.0.0.1:8000/api/health || exit 1
+    CMD wget -qO- http://127.0.0.1/api/health || exit 1
 
-CMD ["python", "-m", "uvicorn", "ai_agent.web_ui:app", "--host", "0.0.0.0", "--port", "8000"]
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]

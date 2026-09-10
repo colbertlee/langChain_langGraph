@@ -1,0 +1,18 @@
+# P2-5 — Grafana dashboard 自动加载 provider
+#
+# 把 monitoring/grafana/dashboards/ 下所有 json 自动加载；
+# 默认 uid 前缀 "ai-agent-console" 便于跨 dashboard 链接。
+
+apiVersion: 1
+
+providers:
+  - name: "ai-agent-console"
+    orgId: 1
+    folder: "AI Agent Console"
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards/ai-agent-console
+      foldersFromFilesStructure: false

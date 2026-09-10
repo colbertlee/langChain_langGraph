@@ -1,0 +1,128 @@
+# P2-5 — Prometheus 告警规则
+#
+# 使用：在 prometheus.yml 里加 `rule_files: ["alerting_rules.yml"]`
+# 配套：alertmanager.yml 推送 Slack / Email / PagerDuty。
+#
+# 设计原则：
+#   - 严重度：critical = 立即响应 / warning = 工作时间处理
+#   - 默认 `for: 2m`（避免抖动误报）；关键路径缩短到 30s
+#   - 每个规则带 `summary` + `description`（Slack 友好）
+#
+groups:
+  # ── 1. 后端健康 ──
+  - name: backend-health
+    interval: 30s
+    rules:
+      - alert: BackendDown
+        expr: up{job="ai-agent-backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: ai-agent-backend
+        annotations:
+          summary: "AI Agent 后端宕机"
+          description: "Prometheus 已 1 分钟无法 scrape 到 backend:8000/metrics。检查容器 / 日志。"
+
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(http_requests_total{job="ai-agent-backend",status=~"5.."}[5m]))
+            /
+          sum(rate(http_requests_total{job="ai-agent-backend"}[5m]))
+            > 0.05
+        for: 2m
+        labels:
+          severity: critical
+          service: ai-agent-backend
+        annotations:
+          summary: "后端 5xx 错误率 > 5%"
+          description: "最近 5 分钟 5xx 错误率 {{ $value | humanizePercentage }}。"
+
+      - alert: SlowRequests
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket{job="ai-agent-backend"}[5m])) by (le, route)
+          ) > 5
+        for: 5m
+        labels:
+          severity: warning
+          service: ai-agent-backend
+        annotations:
+          summary: "P95 请求耗时 > 5s（route={{ $labels.route }}）"
+          description: "当前 P95 = {{ $value | humanizeDuration }}，疑似 LLM 慢响应或下游卡住。"
+
+  # ── 2. SSE 流健康 ──
+  - name: sse-streaming
+    interval: 30s
+    rules:
+      - alert: SSEConnectionsSpike
+        expr: sse_active_connections > 100
+        for: 5m
+        labels:
+          severity: warning
+          service: ai-agent-backend
+        annotations:
+          summary: "SSE 活跃连接数 > 100"
+          description: "当前活跃 SSE 连接数 {{ $value }}，可能是客户端泄漏或流量激增。"
+
+      - alert: SSENoTraffic
+        expr: |
+          rate(sse_bytes_sent_total[5m]) == 0
+            and
+          sum(rate(http_requests_total{job="ai-agent-backend",route="/api/chat/stream"}[5m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+          service: ai-agent-backend
+        annotations:
+          summary: "SSE 连接建立但无数据输出"
+          description: "5 分钟内 SSE 字节吞吐为 0，但 chat/stream 请求在进来。可能是模型卡死或网络中断。"
+
+  # ── 3. LLM / Agent 业务指标 ──
+  - name: llm-business
+    interval: 1m
+    rules:
+      - alert: LLMTokenSpike
+        expr: |
+          sum(rate(llm_token_usage_total[1h])) > 100000
+        for: 15m
+        labels:
+          severity: warning
+          service: ai-agent-backend
+        annotations:
+          summary: "LLM token 消耗速率 > 100k/h"
+          description: "最近 1 小时 token 消耗 {{ $value | humanize }}。检查是否有 prompt 循环或流量异常。"
+
+      - alert: HighAgentSwitchLatency
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(agent_switch_latency_seconds_bucket[5m])) by (le, from_agent, to_agent)
+          ) > 3
+        for: 5m
+        labels:
+          severity: warning
+          service: ai-agent-backend
+        annotations:
+          summary: "Agent 切换 P95 > 3s"
+          description: "from={{ $labels.from_agent }} → to={{ $labels.to_agent }}"
+
+      - alert: SandboxExecTimeout
+        expr: |
+          sum(rate(sandbox_execution_duration_seconds_count{status="timeout"}[10m])) > 0
+        for: 2m
+        labels:
+          severity: warning
+          service: ai-agent-backend
+        annotations:
+          summary: "沙箱执行出现超时"
+          description: "10 分钟内出现 {{ $value }} 次超时执行。"
+
+      - alert: HITLRejectSpike
+        expr: |
+          sum(rate(hitl_decisions_total{decision="rejected"}[10m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+          service: ai-agent-backend
+        annotations:
+          summary: "HITL 拒绝率突增"
+          description: "10 分钟内 {{ $value }} 次拒绝，疑似工具策略触发频繁。"

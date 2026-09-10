@@ -523,13 +523,23 @@ def test_resolve_tools_does_not_change_signature():
 
 
 def test_resolve_memory_store_does_not_break_agent_init():
-    """AIAgent 初始化（不实际调 LLM）必须能在 v2 slim 模式下成功。"""
+    """AIAgent 初始化（不实际调 LLM）必须能在 v2 slim 模式下成功。
+
+    v2.5：tools 入口已统一为 tools_registry（见 tools_registry.py）；
+        AIAgent.__init__ 调用 _resolve_tools_for_runtime()（别名指向 registry）。
+    """
     # 这一项较重，可能因缺 API key 失败；只验证 import + 类属性
     from agent import AIAgent
-    # 静态分析：AIAgent.__init__ 中 _resolve_tools/_resolve_memory_store 调用必须存在
+    # 静态分析：AIAgent.__init__ 中工具解析必须走 registry
     src = (ROOT / "agent.py").read_text(encoding="utf-8")
-    assert "_resolve_tools()" in src, "AIAgent.__init__ 必须用 _resolve_tools()"
-    assert "_resolve_memory_store()" in src, "AIAgent.__init__ 必须用 _resolve_memory_store()"
+    # 新路径：tools_registry.resolve_tools_for_runtime（被 _resolve_tools_for_runtime 包装）
+    assert (
+        "_resolve_tools_for_runtime" in src
+        or "tools_registry.resolve_tools_for_runtime" in src
+        or "tools_registry.get_tool_names" in src
+    ), "AIAgent.__init__ 必须通过 tools_registry 解析工具（v2.5 单一真相）"
+    # 记忆管理解析（保留）
+    assert "_resolve_memory_store" in src, "AIAgent.__init__ 必须用 _resolve_memory_store()"
 
 
 # ============================================================

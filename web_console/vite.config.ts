@@ -71,10 +71,14 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    host: true, // 监听 0.0.0.0，便于容器/局域网访问（本地开发仍走 localhost）
+    // 本地开发：vite 代理 /api/* → FastAPI 后端 8000
+    // （生产环境由 nginx.conf 反代到 backend:8000；这里仅 dev 用）
     proxy: {
       '/api': {
         target: 'http://localhost:8000',
         changeOrigin: true,
+        ws: true,
       },
     },
   },

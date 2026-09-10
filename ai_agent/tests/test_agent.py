@@ -141,9 +141,16 @@ class TestTools:
         tools = agent.get_tools_list()
         assert isinstance(tools, list)
 
-    def test_get_tools_list_empty_when_no_tools(self, agent):
+    def test_get_tools_list_uses_registry_even_when_tools_none(self, agent):
+        """P0-3：get_tools_list 走 tools_registry 单一真相。
+
+        即使 self.tools = None 也能返回完整工具列表（不再依赖字段状态）。
+        """
         agent.tools = None
-        assert agent.get_tools_list() == []
+        tools = agent.get_tools_list()
+        # 至少 6 个 v2_slim 复合工具
+        assert isinstance(tools, list)
+        assert len(tools) >= 6, f"expected ≥6 tools via registry, got {len(tools)}"
 
 
 class TestSession:

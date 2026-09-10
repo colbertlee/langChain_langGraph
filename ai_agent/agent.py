@@ -12,9 +12,11 @@ AIAgent - 基于 LangChain 1.x + LangGraph 的多功能 AI Agent。
    无 AgentExecutor；输入为 {"messages": [...]}，checkpointer 由 create_agent 接收。
 """
 
+import json
 import os
 import sqlite3
 import logging
+import time
 import uuid
 from typing import Any, Callable, Dict, Iterator, List, Optional
 
@@ -22,6 +24,8 @@ from langchain_openai import ChatOpenAI
 from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langgraph.checkpoint.sqlite import SqliteSaver
+
+# v2.2.1 — Human-in-the-Loop 拦截（延迟到运行时再 import，避免循环依赖）
 
 from config import (
     OPENAI_API_KEY, DEEPSEEK_API_KEY, QWEN_API_KEY, MINIMAX_API_KEY,
@@ -89,6 +93,7 @@ def _is_real_api_key(api_key: str) -> bool:
 # v2.10 起，LEGACY 路径与 _legacy.py 模块已全部移除，仅保留 v2 slim 入口。
 # ==========================================================
 from v2_slim.tools_v2 import get_all_tools_v2 as _resolve_tools
+from tools_registry import resolve_tools_for_runtime as _resolve_tools_for_runtime
 from v2_slim.memory_store_v2 import get_memory_store_v2 as _resolve_memory_store
 
 
@@ -204,6 +209,194 @@ def _api_key_for_provider(provider: str) -> str:
     return mapping.get(provider, OPENAI_API_KEY)
 
 
+# ============================================================
+# v2.2.1 — HITL 工具包装
+# ============================================================
+
+
+def _extract_session_meta(config: Optional[Dict[str, Any]]) -> Dict[str, str]:
+    """从 LangGraph config 抽取 session_id（兼容 configurable.thread_id / session_id 两种写法）。"""
+    if not isinstance(config, dict):
+        return {}
+    cfg = config.get("configurable") or {}
+    return {
+        "thread_id": str(cfg.get("thread_id") or cfg.get("session_id") or ""),
+    }
+
+
+def _tool_call_fingerprint(tool_name: str, args: Any) -> str:
+    """生成 (tool_name, sorted_args_json) 元组，跨进程稳定。"""
+    try:
+        normalized = json.dumps(args, sort_keys=True, ensure_ascii=False, default=str)
+    except Exception:
+        normalized = str(args)
+    return f"{tool_name}::{normalized}"
+
+
+class _HITLWrappedTool:
+    """把任意 LangChain Tool / StructuredTool 包一层，强制走 HITL 拦截。
+
+    行为：
+      - 首次 invoke(thread_id=..., args=...) → 检查 HITLStore
+        * 已有 approved 决议（按 (session_id, tool_name, args) 指纹匹配）→ 真正执行 inner
+        * 已有 rejected 决议 → 返回 "Action cancelled by user: {reason}"
+        * 仍是 pending → 写一条新 pending（如果该指纹尚无 pending）并返回 sentinel 字符串
+        * 完全没有 pending / decision 记录 → 创建 pending → 返回 sentinel
+      - 后续 invoke（同 thread_id + 同指纹）→ 已 approved 真正执行 / 已 rejected 返回取消消息。
+
+    兜底：若 config 中无 thread_id（agent 流里没传 config），直接执行 inner（保持向后兼容）。
+
+    注意：本类不强制要求 inner 是 StructuredTool；只要它有 ``name``/``invoke``/``_run`` 即可。
+    """
+
+    _HITL_PENDING_SENTINEL = "__HITL_PENDING__"
+
+    def __init__(self, inner: Any, *, requires_approval: Optional[bool] = None) -> None:
+        self._inner = inner
+        # 镜像工具属性（让 LangChain / LangGraph 仍把它当工具用）
+        self.name = getattr(inner, "name", "wrapped_tool")
+        self.description = getattr(inner, "description", "")
+        self.args_schema = getattr(inner, "args_schema", None)
+        # 标记：已经被包过一次（防止 _wrap_tools_with_hitl 二次包装）
+        self._hitl_wrapped: bool = True
+        # v2.2.1 — 标记本工具的策略；若未显式指定则按 hitl_langgraph.tool_requires_approval 推断
+        self._requires_approval_flag = requires_approval
+
+    # ----- LangChain 工具接口 -----
+    def _run(self, *args: Any, **kwargs: Any) -> str:
+        # 旧 BaseTool 路径
+        return self.invoke(kwargs if not args else args[0], config=None)
+
+    async def _arun(self, *args: Any, **kwargs: Any) -> str:
+        return self.invoke(kwargs if not args else args[0], config=None)
+
+    # ----- 核心拦截 -----
+    def invoke(self, input: Any, config: Optional[Dict[str, Any]] = None, **kwargs: Any) -> str:
+        # 1) 抽取 args（LangChain StructuredTool.invoke(input, config=None)）
+        if isinstance(input, dict):
+            tool_args = dict(input)
+        else:
+            tool_args = dict(kwargs)
+        # 2) 抽取 session
+        meta = _extract_session_meta(config)
+        thread_id = meta.get("thread_id") or ""
+        # 3) 拦截判定
+        try:
+            from hitl_langgraph import (
+                HITLStore,
+                tool_requires_approval,
+            )
+
+            needs = self._requires_approval_flag
+            if needs is None:
+                needs = tool_requires_approval(self._inner)
+            if not thread_id or not needs:
+                # 无 thread_id 或 不需要审批：兜底直接执行
+                return self._call_inner(input, config=config, **kwargs)
+            store = HITLStore.instance()
+            # 3a) 先查询现有决议（approved / rejected）—— 找 (session_id, tool_name, args 指纹) 匹配
+            fp = _tool_call_fingerprint(self.name, tool_args)
+            existing = self._find_decision(store, thread_id, fp)
+            if existing is not None:
+                if existing.status == "approved":
+                    # 用用户修改后的 tool_args 执行
+                    new_args = existing.decision_payload or tool_args
+                    return self._call_inner(new_args, config=config)
+                if existing.status == "rejected":
+                    return (
+                        f"Action cancelled by user: {existing.reject_reason or 'Action cancelled by user'}"
+                    )
+                # status == 'consumed' / 'pending'：继续往下走
+            # 3b) 创建新的 pending
+            from hitl_langgraph import intercept_tool_call
+
+            decision, pending = intercept_tool_call(
+                self._inner, tool_args, thread_id
+            )
+            if decision == "allow":
+                return self._call_inner(input, config=config, **kwargs)
+            # decision == "pending"
+            return (
+                f"{self._HITL_PENDING_SENTINEL} request_id={pending.request_id} "
+                f"tool={pending.tool_name} thread_id={thread_id}"
+            )
+        except Exception as e:
+            # 拦截失败 → 兜底直接执行（避免 HITL bug 导致整个 agent 崩）
+            logger.warning(f"HITL wrap invoke failed, fallback to direct: {e}")
+            return self._call_inner(input, config=config, **kwargs)
+
+    def _find_decision(
+        self, store: Any, thread_id: str, fingerprint: str
+    ) -> Optional[Any]:
+        """查询当前 session 内匹配 fingerprint 的最新 resolved decision。
+
+        - approved: 用 decision_payload 重跑 inner
+        - rejected: 返回取消消息
+        - pending / consumed: 返回 None（继续创建新 pending）
+        """
+        try:
+            all_items = store.list_all_for_session(thread_id)
+        except Exception:
+            return None
+        # 按 created_at 倒序：找最近的匹配
+        candidates = []
+        for p in all_items:
+            try:
+                p_fp = _tool_call_fingerprint(
+                    p.tool_name, p.tool_args
+                )
+            except Exception:
+                continue
+            if p_fp == fingerprint:
+                candidates.append(p)
+        if not candidates:
+            return None
+        # 找最新且状态为 approved / rejected 的
+        candidates.sort(key=lambda x: getattr(x, "created_at", 0), reverse=True)
+        for p in candidates:
+            if p.status in ("approved", "rejected"):
+                return p
+        return None
+
+    def _call_inner(
+        self, input: Any, config: Optional[Dict[str, Any]] = None, **kwargs: Any
+    ) -> str:
+        inner = self._inner
+        # 优先用 invoke 协议（LangChain 1.x 主流）
+        invoke = getattr(inner, "invoke", None)
+        if callable(invoke):
+            try:
+                result = invoke(input, config=config)
+                return self._normalize_result(result)
+            except TypeError:
+                # 部分老 StructuredTool 不收 config
+                result = invoke(input)
+                return self._normalize_result(result)
+        # 兜底：_run
+        run = getattr(inner, "_run", None)
+        if callable(run):
+            if isinstance(input, dict):
+                result = run(**input)
+            else:
+                result = run(input)
+            return self._normalize_result(result)
+        # 最兜底：直接调用
+        if isinstance(input, dict):
+            return str(inner(**input))
+        return str(inner(input))
+
+    @staticmethod
+    def _normalize_result(result: Any) -> str:
+        if isinstance(result, str):
+            return result
+        if isinstance(result, dict):
+            try:
+                return json.dumps(result, ensure_ascii=False, default=str)
+            except Exception:
+                return str(result)
+        return str(result)
+
+
 class AIAgent:
     """多功能 AI Agent 主类（LangChain 1.x 适配版）。
 
@@ -226,7 +419,10 @@ class AIAgent:
         self.model: Optional[Any] = None
         self.rag: Optional[RAGModule] = None
         self.security: SecurityModule = get_security_instance()
-        self.tools = _resolve_tools()
+        # P0-3：默认 tools 来源切换到 tools_registry（含 v2_slim 6 个 + knowledge_search）。
+        # 保持与 _resolve_tools 完全相同的集合（仅多加 knowledge_search）—— _resolve_tools 保留
+        # 是为了兼容旧路径（agent_tool_router.resolve_tools 仍需要它来构造 session 额外工具）。
+        self.tools = self._wrap_tools_with_hitl(_resolve_tools_for_runtime())
         self.checkpointer: Optional[SqliteSaver] = None
         # LangChain 1.x：create_agent 直接返回可执行对象
         self.agent: Optional[Any] = None
@@ -322,6 +518,163 @@ class AIAgent:
                 f"MemorySaver fallback also failed: {e}"
             ) from e
 
+    # ============================================================
+    # v2.2.1 — HITL 工具拦截（轻量包装层）
+    # ============================================================
+
+    def _wrap_tools_with_hitl(self, tools: List[Any]) -> List[Any]:
+        """对每个 tool 判定是否需要审批，若需要则用 _HITLWrappedTool 包裹。
+
+        幂等性：已经被包过的 tool（``_hitl_wrapped == True``）不会被再次包。
+        """
+        if not tools:
+            return tools
+        out: List[Any] = []
+        for t in tools:
+            if t is None:
+                continue
+            if getattr(t, "_hitl_wrapped", False):
+                # 已是 HITL 包装；保留原样
+                out.append(t)
+                continue
+            try:
+                from hitl_langgraph import tool_requires_approval
+
+                if tool_requires_approval(t):
+                    out.append(_HITLWrappedTool(t))
+                else:
+                    out.append(t)
+            except Exception as e:
+                # hitl_langgraph 不可用：保持原样（向后兼容）
+                logger.debug(f"_wrap_tools_with_hitl: tool_requires_approval check skipped: {e}")
+                out.append(t)
+        return out
+
+    # ============================================================
+    # v2.1 — bind_tools_for_session / set_pending_vision_blocks
+    # ============================================================
+
+    _session_tool_map: Dict[str, List[str]] = {}
+    """class-level: per-session 工具名列表（每次 bind_tools_for_session 覆盖）。"""
+
+    _pending_vision_blocks: Dict[str, List[Dict[str, Any]]] = {}
+    """class-level: per-session 待注入 HumanMessage 的视觉块（图片 / OCR 文本）。
+
+    set_pending_vision_blocks(sid, blocks) → 写；下次 get_effective_tools / run_stream 时用掉。
+    """
+
+    def bind_tools_for_session(self, tool_names: List[str]) -> List[str]:
+        """v2.1 — 为当前会话（self.current_session_id）绑定 tool 列表。
+
+        行为：
+          - 覆盖式更新：同一个 session 后调用的会完全替换前一次的工具集合
+          - 不同 session 互不影响（self._session_tool_map 字典按 session_id 隔离）
+          - 同时刷新 self.tools：把 session 工具追加到 self.tools 末尾（去重）
+            —— 让外部直接读 agent.tools 也能看到绑定的工具
+          - 通过 get_effective_tools() 动态合并（兼容更复杂场景）
+
+        返回：本次实际写入的工具名列表（去重 + 过滤 None）。
+        """
+        sid = getattr(self, "current_session_id", None) or "default"
+        names = [str(n) for n in (tool_names or []) if n]
+        # 去重但保持顺序
+        seen: set = set()
+        uniq: List[str] = []
+        for n in names:
+            if n not in seen:
+                seen.add(n)
+                uniq.append(n)
+        type(self)._session_tool_map[sid] = uniq
+        # 同步把 per-session tools 注入到 self.tools 末尾（不修改 base，只追加 session 专属）
+        try:
+            base = list(getattr(self, "tools", None) or [])
+            base_names = {getattr(t, "name", None) for t in base}
+            if uniq:
+                from agent_tool_router import resolve_tools
+                resolved = resolve_tools(uniq)
+                for t in resolved:
+                    tn = getattr(t, "name", None)
+                    if tn and tn not in base_names:
+                        base.append(t)
+                        base_names.add(tn)
+            self.tools = base
+        except Exception as _e:
+            logger.debug(f"bind_tools_for_session self.tools 同步失败: {_e}")
+        # 若 model 已就绪 + 系统 prompt 已设，重建 self.agent（让 LangGraph ToolNode 反映新 tools）
+        try:
+            if getattr(self, "model", None) is not None and getattr(self, "_system_prompt", None) is not None:
+                from langchain.agents import create_agent
+                self.agent = create_agent(
+                    model=self.model,
+                    tools=self.tools,
+                    system_prompt=self._system_prompt,
+                    checkpointer=getattr(self, "checkpointer", None),
+                )
+        except Exception as _e:
+            logger.debug(f"bind_tools_for_session self.agent 重建失败: {_e}")
+        return uniq
+
+    def get_effective_tools(self) -> List[Any]:
+        """v2.1 — 实际生效的 tool 列表 = self.tools + per-session 额外 tools。
+
+        - base 永远保留（self.tools）
+        - per-session 列表从 self._session_tool_map[sid] 读
+        - 同名工具不会重复出现（base 优先）
+        """
+        sid = getattr(self, "current_session_id", None) or "default"
+        session_names = type(self)._session_tool_map.get(sid) or []
+        base = list(self.tools or [])
+        base_names = {getattr(t, "name", None) for t in base}
+        extras: List[Any] = []
+        if session_names:
+            try:
+                from agent_tool_router import resolve_tools
+                resolved = resolve_tools(session_names)
+            except Exception:
+                resolved = []
+            for t in resolved:
+                if getattr(t, "name", None) not in base_names:
+                    extras.append(t)
+                    base_names.add(getattr(t, "name", None))
+        return base + extras
+
+    def set_temperature(self, temperature: float) -> bool:
+        """v2.1 — 动态调整模型 temperature。
+
+        实现：构造新 model 实例 + 调用 init_agent 重绑（保持与 switch_model 一致）。
+        失败（如无 API key）→ 返回 False。
+        """
+        try:
+            global TEMPERATURE
+            TEMPERATURE = float(temperature)
+            return True
+        except Exception:
+            return False
+
+    def set_pending_vision_blocks(
+        self, blocks: Optional[List[Dict[str, Any]]]
+    ) -> None:
+        """v2.1 — 为当前 session 缓存一次性的视觉块（图片 / OCR 文本）。
+
+        blocks 中每条形如 {"type": "image" | "ocr", "content": "...", "filename": "img.png"}。
+        这些块会在下一次 run_stream 的第一条 HumanMessage 中被消费（_consume_pending_vision_blocks）。
+        """
+        sid = getattr(self, "current_session_id", None) or "default"
+        type(self)._pending_vision_blocks[sid] = list(blocks or [])
+
+    def _consume_pending_vision_blocks(
+        self, session_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """v2.1 — 取出并清空当前 session 的待注入视觉块。"""
+        sid = session_id or getattr(self, "current_session_id", None) or "default"
+        return type(self)._pending_vision_blocks.pop(sid, [])
+
+    @classmethod
+    def reset_session_state_for_tests(cls) -> None:
+        """v2.1 — 测试辅助：清空 class-level per-session 状态。"""
+        cls._session_tool_map.clear()
+        cls._pending_vision_blocks.clear()
+
     def _get_model(self, provider: Optional[str] = None, model_name: Optional[str] = None):
         """根据 provider 获取对应的模型实例。
 
@@ -402,7 +755,8 @@ class AIAgent:
             set_security_instance(self.security)
 
             # 重新加载 tools（确保包含 rag 等可能新增的工具）
-            self.tools = _resolve_tools()
+            # P0-3：与 __init__ 同步走 tools_registry 单一真相。
+            self.tools = self._wrap_tools_with_hitl(_resolve_tools_for_runtime())
             self._system_prompt = self._build_system_prompt()
 
             # LangChain 1.x: create_agent 直接接收 checkpointer，
@@ -1039,7 +1393,32 @@ class AIAgent:
         system_content = "\n\n".join(system_parts) if system_parts else ""
 
         sys_msg = SystemMessage(content=system_content)
-        hum_msg = HumanMessage(content=final_input)
+        # v2.1 — multimodal: 若当前 session 缓存了 vision blocks（图片 / OCR），
+        # 把 HumanMessage.content 拼成 list[dict]（text + image_url）
+        try:
+            pending = self._consume_pending_vision_blocks()
+        except Exception:
+            pending = []
+        if pending:
+            content_list: List[Any] = [{"type": "text", "text": final_input}]
+            for blk in pending:
+                if not isinstance(blk, dict):
+                    continue
+                # blk 形如 {"type": "image_url", "image_url": {"url": "data:..."}}
+                if blk.get("type") == "image_url" and isinstance(blk.get("image_url"), dict):
+                    content_list.append({
+                        "type": "image_url",
+                        "image_url": {"url": blk["image_url"].get("url", "")},
+                    })
+                elif blk.get("type") == "image" and blk.get("data"):
+                    mime = blk.get("mime_type") or "image/png"
+                    content_list.append({
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{mime};base64,{blk['data']}"},
+                    })
+            hum_msg = HumanMessage(content=content_list)
+        else:
+            hum_msg = HumanMessage(content=final_input)
         return [sys_msg, hum_msg]
 
     def _apply_user_prompt_template(self, user_input: str, enhanced_input: str) -> str:
@@ -1303,23 +1682,40 @@ class AIAgent:
         - 遇错时切到下一个 fallback，从头重启 stream
         - 全部 fallback 都失败时 yield 降级回答
 
-        阶段 A3/A4/A5 改造：
+        阶段 A3/A4/A5 改造 + P0-1 工具事件族补全：
         - 不再 yield 纯文本，而是 yield 一个结构化 dict（保持向后兼容：
           dict 里 `data` 字段是文本增量，前端可直接渲染）；
         - 事件类型：
-            {"type": "start",   "data": ""}             开始
-            {"type": "safety",  "data": reason}         输入被安全拦截
-            {"type": "thinking","data": "..."}          模型 CoT 段落（被前端折叠）
-            {"type": "chunk",   "data": "..."}          普通回答增量
-            {"type": "tool_call","data": "", "name":..} 工具调用（从消息 metadata 抽取）
-            {"type": "error",   "data": msg}            错误
-            {"type": "complete","data": full_output}    结束
+            {"type": "start",     "data": ""}                       开始
+            {"type": "safety",    "data": reason}                   输入被安全拦截
+            {"type": "thinking",  "data": "..."}                    模型 CoT 段落（被前端折叠）
+            {"type": "chunk",     "data": "..."}                    普通回答增量
+            {"type": "tool_start","tool_call_id":..,"name":..,      工具开始执行（P0-1）
+                            "args": {..}}
+            {"type": "tool_result","tool_call_id":..,"result":..,   工具返回结果（P0-1）
+                            "duration_ms": ..}
+            {"type": "tool_end",  "tool_call_id":..,"status":..,    工具结束（P0-1）
+                            "duration_ms": ..}
+            {"type": "tool_call", "data": "", "name":..}            兼容事件（保留旧前端）
+            {"type": "error",     "data": msg}                      错误
+            {"type": "complete",  "data": full_output}              结束
         """
         self._resolve_session(session_id)
 
         # helper：避免每处都写 dict
         def _evt(type_: str, **kwargs) -> Dict[str, Any]:
             return {"type": type_, "data": kwargs.pop("data", ""), **kwargs}
+
+        # P0-1：工具调用上下文（同一 tool_call_id 贯穿 tool_start → tool_result → tool_end）
+        #  - active_tool_call_id  : 当前正在执行的工具 id（end 后置 None）
+        #  - tool_start_at        : 工具开始时间戳（用于计算 duration_ms）
+        #  - seen_tool_call_ids   : 已发射 tool_start 的 id 集合，避免重复
+        #  - pending_tool_calls   : AIMessage.tool_calls → dict[id -> {name,args}] 的索引，
+        #                           用于在 ToolMessage 到达时反查 name/args
+        active_tool_call_id: Optional[str] = None
+        tool_start_at: Optional[float] = None
+        seen_tool_call_ids: set = set()
+        pending_tool_calls: Dict[str, Dict[str, Any]] = {}
 
         if not user_input or not user_input.strip():
             yield _evt("error", data="❌ 错误: 输入不能为空")
@@ -1359,11 +1755,108 @@ class AIAgent:
                 session_id=self.current_session_id,
             ):
                 if event == "chunk":
-                    # A3：优先尝试从消息 metadata 抽 tool_call（LangGraph 1.x 中，
-                    # AIMessage 可能在 tool_calls 字段里携带工具调用）
-                    tool_name = self._extract_tool_name(payload_val)
-                    if tool_name:
-                        yield _evt("tool_call", data="", name=tool_name)
+                    # ------------------------------------------------------------------
+                    # P0-1：工具事件族（tool_start / tool_result / tool_end）
+                    #
+                    # LangGraph 1.x 状态机里，"工具调用"分两个相邻消息：
+                    #   1) AIMessage（带 tool_calls=[{id, name, args}]） → 工具"被请求"
+                    #   2) ToolMessage（带 tool_call_id + content）        → 工具"已执行"
+                    # 我们在每个 chunk 扫描最后一条消息：
+                    #   - AIMessage：把每个新 id 注册进 pending_tool_calls，并 yield tool_start
+                    #   - ToolMessage：用 tool_call_id 反查 name，从 pending 删掉，yield tool_result + tool_end
+                    # tool_call_id 兜底：LangChain 在某些 path 下不生成 id → 用 uuid4().hex
+                    # ------------------------------------------------------------------
+                    try:
+                        import uuid as _uuid
+
+                        last_msg = None
+                        if isinstance(payload_val, dict):
+                            msgs = payload_val.get("messages")
+                            if isinstance(msgs, list) and msgs:
+                                last_msg = msgs[-1]
+                        elif isinstance(payload_val, list) and payload_val:
+                            last_msg = payload_val[-1]
+
+                        if last_msg is not None:
+                            # 1) AIMessage.tool_calls 触发 tool_start
+                            tcs = getattr(last_msg, "tool_calls", None)
+                            if tcs:
+                                for tc in tcs:
+                                    if not isinstance(tc, dict):
+                                        continue
+                                    tc_id = tc.get("id") or _uuid.uuid4().hex
+                                    tc_name = tc.get("name") or ""
+                                    tc_args = tc.get("args") or {}
+                                    # 兼容：旧版可能没有 id，每次都生成新 id 会导致重复 start，
+                                    # 这里用 (id + name) 去重。
+                                    dedup_key = tc_id if tc.get("id") else f"{tc_name}#{len(seen_tool_call_ids)}"
+                                    if dedup_key in seen_tool_call_ids:
+                                        continue
+                                    seen_tool_call_ids.add(dedup_key)
+                                    pending_tool_calls[tc_id] = {
+                                        "name": tc_name,
+                                        "args": tc_args,
+                                    }
+                                    active_tool_call_id = tc_id
+                                    tool_start_at = time.time()
+                                    # P0-1：新事件 tool_start（前端用 tool_call_id 锁定卡片）
+                                    yield _evt(
+                                        "tool_start",
+                                        tool_call_id=tc_id,
+                                        name=tc_name,
+                                        args=tc_args,
+                                    )
+                                    # 兼容：保留旧 tool_call 事件（不破坏旧前端）
+                                    yield _evt("tool_call", data="", name=tc_name, tool_call_id=tc_id)
+
+                            # 2) ToolMessage 触发 tool_result + tool_end
+                            tc_id_attr = getattr(last_msg, "tool_call_id", None)
+                            if tc_id_attr:
+                                tc_meta = pending_tool_calls.pop(tc_id_attr, {})
+                                tc_name = (
+                                    tc_meta.get("name")
+                                    or getattr(last_msg, "name", None)
+                                    or "tool"
+                                )
+                                tc_result = getattr(last_msg, "content", "")
+                                if not isinstance(tc_result, str):
+                                    tc_result = str(tc_result)
+                                duration_ms = (
+                                    (time.time() - tool_start_at) * 1000.0
+                                    if (tool_start_at is not None and active_tool_call_id == tc_id_attr)
+                                    else None
+                                )
+                                yield _evt(
+                                    "tool_result",
+                                    tool_call_id=tc_id_attr,
+                                    name=tc_name,
+                                    result=tc_result,
+                                    duration_ms=duration_ms,
+                                )
+                                yield _evt(
+                                    "tool_end",
+                                    tool_call_id=tc_id_attr,
+                                    name=tc_name,
+                                    status="success",
+                                    duration_ms=duration_ms,
+                                )
+                                if active_tool_call_id == tc_id_attr:
+                                    active_tool_call_id = None
+                                    tool_start_at = None
+                    except Exception as _te:
+                        logger.debug(f"P0-1 tool event emit failed: {_te}")
+
+                    # v2.2.1 — HITL 拦截事件：扫描当前 session 的待审批，发出 approval_required 帧
+                    try:
+                        from hitl_langgraph import emit_pending_to_sse, emit_timeout_events
+
+                        for pending_evt in emit_pending_to_sse(self.current_session_id):
+                            yield pending_evt
+                        # v2.2.1 — 超时自动拒绝：扫描全局 pending 中的超时项
+                        for timeout_evt in emit_timeout_events():
+                            yield timeout_evt
+                    except Exception as _he:
+                        logger.debug(f"HITL pending scan failed: {_he}")
 
                     current_text = self._extract_ai_text(payload_val)
                     if not current_text:
@@ -1514,6 +2007,21 @@ class AIAgent:
         return "⚠️ 历史清除部分失败，请查看日志"
 
     def get_tools_list(self) -> List[str]:
+        """P0-3：单一真相 → tools_registry.get_tool_names()。
+
+        旧实现：`return [t.name for t in self.tools]`
+        缺点：依赖 self.tools 字段是否已初始化；bind_tools_for_session 后会动态
+              追加临时工具，列表波动 → 与前端 /api/tools 端点不同源。
+        新实现：直接走 tools_registry，永远反映「运行时实际可用工具集合」。
+        """
+        try:
+            from tools_registry import get_tool_names
+            names = list(get_tool_names() or [])
+            if names:
+                return names
+        except Exception as _e:
+            logger.debug(f"get_tools_list via registry failed, fallback: {_e}")
+        # fallback：旧行为（不破坏现有测试）
         if self.tools is None:
             return []
         return [tool.name for tool in self.tools]

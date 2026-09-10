@@ -9,6 +9,7 @@ import {
 import { Send, Square, Bot, User as UserIcon, Copy, RotateCw, Pencil, ChevronLeft, ChevronRight, Paperclip, X, Layers } from 'lucide-react';
 import { MarkdownText } from './markdown-text';
 import { ToolCallCard } from './tool-fallback';
+import { ThinkingBlock } from './ThinkingBlock';
 
 export const Thread: FC = () => {
   return (
@@ -135,8 +136,15 @@ const AssistantMessage: FC = () => {
         <div className="rounded-[12px] px-4 py-3 border bg-[var(--bg-1)] border-[var(--border)] shadow-glass">
           <div className="prose-md">
             <MessagePrimitive.Parts
-              // @ts-expect-error assistant-ui 0.14 types miss ToolFallback
-              components={{ Text: MarkdownText, ToolFallback: ToolCallCard }}
+              // assistant-ui 0.14 标准 StandardComponents 类型只含 Text/Image/InProgress/Messages，
+              // ToolFallback / Reasoning 是运行时识别的扩展 slot，需断言成 any 绕过。
+              components={
+                {
+                  Text: MarkdownText,
+                  ToolFallback: ToolCallCard,
+                  Reasoning: ThinkingBlock,
+                } as any
+              }
             />
           </div>
         </div>

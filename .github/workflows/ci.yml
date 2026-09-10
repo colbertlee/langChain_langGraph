@@ -1,0 +1,303 @@
+name: CI
+
+# P2-2 / P2-3 — 前端 + 后端覆盖率门禁 + 测试
+#
+# 触发条件：
+#   - push / pull_request 到 main / develop
+#   - 手动触发（workflow_dispatch）
+#
+# 步骤：
+#   1. backend-tests         pytest + coverage gate
+#   2. frontend-tests        vitest + coverage gate
+#   3. frontend-e2e          playwright（mock 后端，验证 UI）
+#   4. docker-build          build 前后端镜像（验证 Dockerfile 完整性）
+#   5. actionlint            lint workflow yaml
+#
+# 覆盖率上传：
+#   - Codecov / Coveralls 任选其一（当前用 codecov-action）
+#
+# 注意事项：
+#   - 必须在 push 到 PR 时也能拿到 CODECOV_TOKEN（建议在 repo secrets 里配）
+#   - coverage gate 失败 → CI fail（block merge）
+#   - 所有 step 共享一份 cache（uv / npm）
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.11"
+  NODE_VERSION: "20"
+
+jobs:
+  # ════════════════════════════════════════════════════════════════
+  # 1. 后端测试 + 覆盖率门禁（P2-3）
+  # ════════════════════════════════════════════════════════════════
+  backend-tests:
+    name: Backend Tests + Coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Install system deps (sqlite + curl)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sqlite3 curl
+
+      - name: Install Python deps
+        working-directory: ai_agent
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run pytest with coverage gate
+        working-directory: ai_agent
+        # P2-3 — `--cov-fail-under=35` 在 pyproject.toml 里；CI 阻断
+        # -m "not slow and not integration and not legacy" 跳过慢 / 集成 / legacy 测试
+        run: |
+          python -m pytest --no-header --tb=short -q \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml \
+            --cov-report=json:coverage.json \
+            --junitxml=test-results.xml
+
+      - name: Upload coverage to Codecov
+        if: success() || failure()
+        uses: codecov/codecov-action@v4
+        with:
+          files: ai_agent/coverage.xml
+          flags: backend
+          name: backend-coverage
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-results
+          path: |
+            ai_agent/coverage.xml
+            ai_agent/coverage.json
+            ai_agent/htmlcov/
+            ai_agent/test-results.xml
+
+  # ════════════════════════════════════════════════════════════════
+  # 2. 前端测试 + 覆盖率门禁（P2-2）
+  # ════════════════════════════════════════════════════════════════
+  frontend-tests:
+    name: Frontend Tests + Coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: web_console/package-lock.json
+
+      - name: Install deps
+        working-directory: web_console
+        run: npm ci --no-audit --no-fund
+
+      - name: Run vitest with coverage gate
+        working-directory: web_console
+        # P2-2 — thresholds 在 vitest.config.ts 里；CI 阻断
+        run: npm run test:coverage -- --reporter=junit --outputFile=test-results.xml
+
+      - name: Upload coverage to Codecov
+        if: success() || failure()
+        uses: codecov/codecov-action@v4
+        with:
+          files: web_console/coverage/lcov.info
+          flags: frontend
+          name: frontend-coverage
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-test-results
+          path: |
+            web_console/coverage/
+            web_console/test-results.xml
+
+  # ════════════════════════════════════════════════════════════════
+  # 3. 前端 Playwright E2E（P2-1）
+  # ════════════════════════════════════════════════════════════════
+  frontend-e2e:
+    name: Frontend E2E (Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [frontend-tests]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: web_console/package-lock.json
+
+      - name: Install deps
+        working-directory: web_console
+        run: npm ci --no-audit --no-fund
+
+      - name: Install Playwright browsers
+        working-directory: web_console
+        # --with-deps 安装系统依赖（chromium 需要的 libs）
+        run: npx playwright install chromium --with-deps
+
+      - name: Run Playwright tests
+        working-directory: web_console
+        # E2E_NO_WEBSERVER=1 跳过 playwright.config 自动启动 dev server；
+        # 当前 spec 全部用 mock 后端（mockSse.ts），不需要真实 dev server
+        env:
+          E2E_NO_WEBSERVER: "1"
+          # 让 Playwright 始终产出 trace / video / screenshot（默认仅失败时保留）
+          PLAYWRIGHT_TRACE: "retain-on-failure"
+        run: npx playwright test
+
+      # ──────── P2-7 — Trace / Video / Screenshot 上传 ────────
+      # Playwright 默认仅在失败时保留 trace；这里**无论成败都上传**，便于：
+      #  1) CI 上点 trace.zip 直接在 trace.playwright.dev 看录像复现
+      #  2) 偶发失败的测试有完整 evidence 便于调试
+      - name: Upload Playwright HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-html-report
+          path: web_console/playwright-report/
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Upload Playwright trace(s)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          # trace.zip 在 playwright.config 里配置保留 → 上传后可下载用
+          # https://trace.playwright.dev 打开
+          name: playwright-traces
+          path: web_console/test-results/
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Upload Playwright videos
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-videos
+          path: web_console/test-results/**/video.webm
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Upload screenshots on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-screenshots-failure
+          path: web_console/test-results/**/*.{png,jpg}
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Print Playwright failure summary
+        if: failure()
+        run: |
+          echo "## Playwright E2E Failures" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "失败 trace / video / screenshot 已上传为 artifacts。" >> $GITHUB_STEP_SUMMARY
+          echo "下载 \`playwright-html-report\` 后用 \`npx playwright show-report\` 在本地查看。" >> $GITHUB_STEP_SUMMARY
+          echo "或下载 \`playwright-traces/*/trace.zip\` 用 https://trace.playwright.dev 复现。" >> $GITHUB_STEP_SUMMARY
+
+  # ════════════════════════════════════════════════════════════════
+  # 4. Docker 构建验证（确保 Dockerfile 可用）
+  # ════════════════════════════════════════════════════════════════
+  docker-build:
+    name: Docker Build Verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build backend image
+        if: matrix.target == 'backend'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ai_agent/Dockerfile
+          tags: ai-agent-backend:ci-${{ github.sha }}
+          build-args: |
+            BUILD_VERSION=ci-${{ github.sha }}
+            BUILD_DATE=${{ github.event.repository.updated_at }}
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build frontend image
+        if: matrix.target == 'frontend'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: web_console/Dockerfile
+          tags: ai-agent-frontend:ci-${{ github.sha }}
+          build-args: |
+            BUILD_VERSION=ci-${{ github.sha }}
+            BUILD_DATE=${{ github.event.repository.updated_at }}
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test backend container
+        if: matrix.target == 'backend'
+        run: |
+          docker run -d --name ci-backend -p 8000:8000 \
+            -e OPENAI_API_KEY=sk-test \
+            -e AI_AGENT_DISABLE_PLACEHOLDER_CHECK=1 \
+            ai-agent-backend:ci-${{ github.sha }}
+          sleep 10
+          curl -fsS http://127.0.0.1:8000/api/health || (docker logs ci-backend && exit 1)
+          docker rm -f ci-backend
+
+  # ════════════════════════════════════════════════════════════════
+  # 5. Workflow 文件 lint（防止 yml 写错）
+  # ════════════════════════════════════════════════════════════════
+  actionlint:
+    name: Workflow Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download actionlint
+        id: get_actionlint
+        run: |
+          mkdir -p ./actionlint
+          curl -sSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash | bash -s -- ./actionlint
+        shell: bash
+      - name: Check workflow files
+        run: ./actionlint/actionlint -color

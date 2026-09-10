@@ -18,7 +18,7 @@ npm ci
 cd ../ai_agent
 pip install -r requirements.txt
 cp .env.example .env       # 填入 LLM_API_KEY
-python -m uvicorn ai_agent.web_ui:app --reload --port 8000
+python -m uvicorn ai_agent.app:app --reload --port 8000
 ```
 
 ## 3. 启动前端

@@ -46,7 +46,6 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(level
 # 路径与目录
 # ============================================================
 _HERE = Path(__file__).resolve().parent
-_WEB_DIR = _HERE / "web"
 _UPLOAD_ROOT = _HERE / "uploads"
 _UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
 
@@ -138,6 +137,16 @@ class AgentProxy:
 
     def get_available_models(self):
         return self._agent.get_available_models()
+
+    def bind_tools_for_session(self, tool_names: List[str]) -> List[str]:
+        """v2.1 — 透传到底层 agent.bind_tools_for_session。"""
+        inner = getattr(self, "_agent", None)
+        if inner is not None and hasattr(inner, "bind_tools_for_session"):
+            try:
+                return inner.bind_tools_for_session(tool_names)
+            except Exception as e:
+                logger.debug(f"AgentProxy.bind_tools_for_session failed: {e}")
+        return list(tool_names or [])
 
     def run_stream(self, user_input: str, session_id: Optional[str] = None):
         """同步收集流式 chunk，返回 dict 列表（与前端 SSE 协议兼容）。
@@ -562,6 +571,21 @@ class AgentProxy:
 # FastAPI 应用
 # ============================================================
 app = FastAPI(title="AI Agent Unified API", version="2.1")
+
+# ──────────────── P2-5 监控中间件 ────────────────
+# 先挂载 HTTP 指标中间件（必须在 CORSMiddleware 之前注册，
+# 让中间件顺序为：CORSMiddleware → HttpMetricsMiddleware → app handler，
+# 即 request 先过 CORS 再被指标记录；response 反向。
+# 注意：add_middleware 是 LIFO，最后 add 的最先执行。所以先 add CORSMiddleware，再 add HttpMetricsMiddleware
+# 这里把 HttpMetricsMiddleware 在下面 add，保证它在最外层执行。
+try:
+    from observability.prom_http_metrics import HttpMetricsMiddleware
+
+    app.add_middleware(HttpMetricsMiddleware)
+    logger.info("[prom_http_metrics] HTTP/SSE Prometheus middleware registered")
+except Exception as _e:
+    logger.warning(f"[prom_http_metrics] middleware init failed: {_e}")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -649,6 +673,16 @@ def _on_startup_seed_demo_workers() -> None:
         _seed_demo_workers_into(registry)
     except Exception as e:
         logger.warning(f"[demo-seed] startup seed skipped: {e}")
+
+    # v2.3.1 — 启动时初始化 OTel + LangSmith（幂等；无 SDK 时降级）
+    try:
+        from observability.otel_exporter import init_otel_providers
+        from observability.langsmith_config import init_langsmith_tracer
+
+        init_otel_providers()
+        init_langsmith_tracer()
+    except Exception as e:
+        logger.debug(f"[observability] startup init skipped: {e}")
 
 
 _agent_instance = None
@@ -857,6 +891,16 @@ class ChatRequest(BaseModel):
     message: str
     session_id: Optional[str] = None
     stream: bool = True
+    # v2.1 — Agent Preset 路由：传入 agent_id 切换 system_prompt / temperature / tools
+    agent_id: Optional[str] = None
+    # v2.1 — 显式工具覆盖（优先级高于 preset.tools）
+    tools: Optional[List[str]] = None
+    # v2.1 — 临时覆盖 system_prompt / temperature（per-request）
+    config_override: Optional[Dict[str, Any]] = None
+    # v2.1 — 附件上下文（前端 upload 后回传 file_id → 注入到 message）
+    files: Optional[List[Dict[str, Any]]] = None
+    # v2.1 — 是否支持 vision multimodal
+    vision_supported: Optional[bool] = None
 
 
 class ApiKeyRequest(BaseModel):
@@ -875,6 +919,27 @@ class HITLDecision(BaseModel):
     decided_by: str = "human"
     decision_payload: Optional[Dict[str, Any]] = None
     notes: str = ""
+
+
+# ============================================================
+# v2.2.1 — HITL v2 决策模型 + Checkpoint 查询模型
+# ============================================================
+
+
+class HITLChatDecision(BaseModel):
+    """v2.2.1 — /api/chat/approve 与 /api/chat/reject 共用 body 模型。
+
+    v2.2.1 增强：
+      - edited_args: 用户修改后的 tool_args（与 tool_args 同义；保留向后兼容）
+      - timeout_seconds: 自定义超时阈值（仅在创建 pending 时使用；approve/reject 忽略）
+    """
+    session_id: str
+    request_id: str
+    tool_args: Optional[Dict[str, Any]] = None
+    edited_args: Optional[Dict[str, Any]] = None  # v2.2.1 — Edit & Resume
+    reason: str = ""
+    decided_by: str = "user"
+    timeout_seconds: Optional[float] = None  # v2.2.1 — 超时阈值（默认 300s）
 
 
 class PolicyRequest(BaseModel):
@@ -910,36 +975,18 @@ class RememberRequest(BaseModel):
 # ============================================================
 @app.get("/")
 async def root():
-    idx = _WEB_DIR / "index.html"
-    if idx.exists():
-        return FileResponse(str(idx))
-    return {"message": "AI Agent API", "version": "2.1"}
-
-
-@app.get("/dashboard")
-async def dashboard():
-    p = _WEB_DIR / "dashboard.html"
-    if p.exists():
-        return FileResponse(str(p))
-    raise HTTPException(status_code=404, detail="dashboard.html not found")
-
-
-@app.get("/legacy")
-async def legacy():
-    p = _WEB_DIR / "index.html"
-    if p.exists():
-        return FileResponse(str(p))
-    raise HTTPException(status_code=404, detail="legacy not found")
+    """纯 API 入口：返回服务元信息。前端请访问 http://localhost:5173/。"""
+    return {
+        "message": "AI Agent API",
+        "version": "2.1",
+        "frontend": "http://localhost:5173/",
+        "docs": "/docs",
+        "openapi": "/openapi.json",
+    }
 
 
 # 静态资源（uploads）
 app.mount("/uploads", StaticFiles(directory=str(_UPLOAD_ROOT)), name="uploads")
-
-# 阶段 A：把 web/ 目录作为静态资源挂载（用于演示 HTML 等）
-try:
-    app.mount("/web-static", StaticFiles(directory=str(_WEB_DIR)), name="web-static")
-except Exception:
-    pass
 
 
 @app.get("/api/health")
@@ -951,6 +998,54 @@ async def health():
     }
 
 
+# ============================================================
+# v2.3.1 — Prometheus /metrics 端点
+# ============================================================
+@app.get("/metrics")
+async def prometheus_metrics():
+    """Prometheus 文本格式的指标导出（合并两套指标）。
+
+    输出包含：
+      - 业务层（otel_exporter 维护）：
+          llm_token_usage_total / agent_switch_latency_seconds /
+          sandbox_execution_duration_seconds / hitl_decisions_total
+      - HTTP 协议层（prom_http_metrics 中间件维护）：
+          http_requests_total / http_request_duration_seconds /
+          http_requests_in_progress / http_request_size_bytes /
+          http_response_size_bytes / sse_active_connections /
+          sse_bytes_sent_total / sse_events_sent_total /
+          sse_connection_duration_seconds
+
+    注意：本端点不是 ``/api/`` 前缀（Prometheus scrape config 通常直接拉 ``/metrics``）。
+    """
+    try:
+        from observability.otel_exporter import (
+            init_otel_providers,
+            metrics_endpoint_response,
+        )
+
+        # 触发一次 ensure-init（幂等）
+        init_otel_providers()
+        body_business, content_type = metrics_endpoint_response()
+    except Exception as e:
+        logger.error(f"/metrics business export failed: {e}")
+        body_business = f"# business export error: {e}\n".encode()
+        content_type = "text/plain; version=0.0.4"
+
+    # 叠加 HTTP/SSE 协议层指标
+    try:
+        from observability.prom_http_metrics import render_metrics
+
+        body_http = render_metrics()
+    except Exception as e:
+        logger.error(f"/metrics http export failed: {e}")
+        body_http = b"# http export error\n"
+
+    # 拼接（按 prometheus text format，每行自带 metric name；多份拼接可被 scrape）
+    combined = body_business + b"\n# === HTTP / SSE protocol metrics ===\n" + body_http
+    return Response(content=combined, media_type=content_type)
+
+
 @app.get("/api/version")
 async def get_version():
     return {"version": "2.1", "framework": "FastAPI"}
@@ -958,19 +1053,47 @@ async def get_version():
 
 @app.get("/api/tools")
 async def get_tools():
-    proxy = get_proxy()
-    tools = proxy.get_tools_list()
-    tool_info = []
-    agent = get_agent()
-    if agent is not None:
-        for name in tools:
-            for t in agent.tools:
-                if t.name == name:
-                    tool_info.append({"name": t.name, "description": t.description})
-                    break
-            else:
-                tool_info.append({"name": name, "description": ""})
-    return {"tools": tool_info}
+    """P0-3：Tools 单一真相 → tools_registry.get_tool_specs()。
+
+    旧实现：双重 for 循环在 proxy.get_tools_list() 与 agent.tools 之间打补丁，
+            极易因为 bind_tools_for_session 后 agent.tools 列表变化而漏报 / 重报。
+    新实现：直接调 tools_registry.get_tool_specs()，得到结构化的
+            [{name, description, args_schema, source, requires_approval}, ...]，
+            前端契约不变（仍返回 {tools: [{name, description}, ...]}）。
+    """
+    try:
+        from tools_registry import get_tool_specs
+        specs = get_tool_specs()
+        # 兼容旧契约：返回精简字段；额外字段保留在 extras 里供前端调试
+        tools = [
+            {
+                "name": s.get("name"),
+                "description": s.get("description") or "",
+                "extras": {
+                    "source": s.get("source"),
+                    "requires_approval": s.get("requires_approval", False),
+                },
+            }
+            for s in specs
+            if s.get("name")
+        ]
+        return {"tools": tools}
+    except Exception as e:
+        logger.debug(f"/api/tools via tools_registry failed, fallback: {e}")
+        # 兜底：旧路径
+        proxy = get_proxy()
+        tools = proxy.get_tools_list()
+        tool_info = []
+        agent = get_agent()
+        if agent is not None:
+            for name in tools:
+                for t in (agent.tools or []):
+                    if t.name == name:
+                        tool_info.append({"name": t.name, "description": t.description})
+                        break
+                else:
+                    tool_info.append({"name": name, "description": ""})
+        return {"tools": tool_info}
 
 
 @app.post("/api/chat")
@@ -992,24 +1115,386 @@ async def chat_stream_sse(request: ChatRequest):
     proxy = get_proxy()
     sid = request.session_id
 
-    async def event_gen():
+    # v2.1 — Agent Preset 路由 + config_override + tools 解析
+    preset_info: Optional[Dict[str, Any]] = None
+    injected_message = request.message
+    effective_temperature: Optional[float] = None
+    effective_tools: Optional[List[str]] = None
+    try:
+        from agent_config import get_preset_store
+
+        store = get_preset_store()
+        preset = None
+        if request.agent_id:
+            preset = store.get(request.agent_id)
+            if preset is None:
+                # agent_id 不存在 → 回退到 builtin-general
+                preset = store.get("builtin-general")
+        if preset is not None:
+            preset_info = {
+                "agent_id": preset.id,
+                "agent_name": preset.name,
+                "temperature": float(preset.temperature),
+                "tools": list(preset.tools or []),
+            }
+            # 把 preset.system_prompt 注入到消息里（前端 fake_stream 通过 assert "[system]" in message 验证）
+            sys_p = (preset.system_prompt or "").strip()
+            if sys_p:
+                injected_message = f"[system]\n{sys_p}\n\n[user]\n{request.message}"
+            effective_temperature = float(preset.temperature)
+            effective_tools = list(preset.tools or [])
+    except Exception as e:
+        logger.debug(f"agent_config lookup failed: {e}")
+
+    # 显式 tools 覆盖 > preset.tools
+    if request.tools is not None:
+        effective_tools = list(request.tools)
+    # 显式 config_override > preset
+    if request.config_override:
+        ov = request.config_override or {}
+        if "system_prompt" in ov and ov["system_prompt"]:
+            sys_p = str(ov["system_prompt"]).strip()
+            # 把 [system] 段重写（保持 [user] 段不变）
+            if "[user]" in injected_message:
+                head, _, user_part = injected_message.partition("[user]")
+                injected_message = f"[system]\n{sys_p}\n\n[user]{user_part}"
+            else:
+                injected_message = f"[system]\n{sys_p}\n\n[user]\n{injected_message}"
+        if "temperature" in ov and ov["temperature"] is not None:
+            try:
+                effective_temperature = float(ov["temperature"])
+            except (TypeError, ValueError):
+                pass
+
+    # 透传到 inner agent：bind_tools_for_session + set_temperature（若底层支持）
+    try:
+        inner = getattr(proxy, "_agent", None)
+        if inner is not None:
+            if effective_tools and hasattr(inner, "bind_tools_for_session"):
+                try:
+                    inner.bind_tools_for_session(effective_tools)
+                except Exception as _be:
+                    logger.debug(f"bind_tools_for_session skipped: {_be}")
+            if effective_temperature is not None and hasattr(inner, "set_temperature"):
+                try:
+                    inner.set_temperature(effective_temperature)
+                except Exception:
+                    pass
+    except Exception as _e:
+        logger.debug(f"agent routing pre-setup failed: {_e}")
+
+    # v2.1 — 附件上下文注入：把前端传过来的 files（parsed_text）拼到 message 里
+    if request.files:
         try:
-            # 修复：FastAPI 已在主线程 asyncio loop 中，调 proxy.run_stream() 走同步 fallback
-            # （不再用 ThreadPoolExecutor 子线程跑 asyncio.run，避免 message_bus 死锁）。
-            # 如需真流式，可改 await proxy._collect_async(request.message, sid)。
-            chunks = proxy.run_stream(request.message, session_id=sid)
-            if not isinstance(chunks, list):
-                if isinstance(chunks, dict):
-                    chunks = [chunks]
+            from file_parser import build_attached_context
+
+            attached = build_attached_context(
+                request.files, upload_root=str(_UPLOAD_ROOT)
+            )
+            if attached:
+                # 拼到 [user] 段之前
+                if "[user]" in injected_message:
+                    head, _, user_part = injected_message.partition("[user]")
+                    injected_message = f"{head}[user]\n{attached}\n{user_part}"
                 else:
-                    chunks = [{"type": "text", "data": str(chunks)}]
-            for c in chunks:
-                if not isinstance(c, dict):
-                    c = {"type": "text", "data": str(c)}
-                event_type = c.get("type", "chunk")
-                yield f"event: {event_type}\ndata: {json.dumps(c, ensure_ascii=False)}\n\n"
+                    injected_message = f"{injected_message}\n\n{attached}"
+        except Exception as _e:
+            logger.debug(f"attached_context injection failed: {_e}")
+
+    # v2.1 — Vision / OCR 路由：
+    #   - vision_supported=True + 图片附件 → 注入 <vision_attachments> + multimodal_image block
+    #   - vision_supported=False + 图片附件 → 注入 <ocr_extracted_text> 块（fallback）
+    vision_meta_blocks: List[str] = []
+    ocr_meta_blocks: List[str] = []
+    if request.files and request.vision_supported is True:
+        try:
+            from file_parser import build_image_multimodal_block
+            from pathlib import Path as _P
+
+            for f in request.files or []:
+                file_id = f.get("file_id") or ""
+                fname = f.get("file_name") or "image"
+                mime = f.get("content_type") or f.get("file_type") or "image/png"
+                if not (isinstance(mime, str) and mime.startswith("image/")):
+                    continue
+                # 1) 优先用 build_image_multimodal_block（data_b64）
+                b64_data = ""
+                if file_id:
+                    # 尝试以多种后缀从 _UPLOAD_ROOT 找到该文件
+                    p_candidates = list(_UPLOAD_ROOT.glob(f"{file_id}*"))
+                    p = p_candidates[0] if p_candidates else None
+                    if p is not None:
+                        block = build_image_multimodal_block(str(p), filename=fname)
+                        if block and block.get("data"):
+                            b64_data = str(block["data"])
+                if not b64_data and f.get("data_b64"):
+                    b64_data = str(f.get("data_b64"))
+                if b64_data:
+                    vision_meta_blocks.append(
+                        f'<multimodal_image filename="{fname}" mime="{mime}" data_b64="{b64_data}" data_b64_len="{len(b64_data)}" />'
+                    )
+            if vision_meta_blocks:
+                block_str = "<vision_attachments>\n" + "\n".join(vision_meta_blocks) + "\n</vision_attachments>"
+                if "[user]" in injected_message:
+                    head, _, user_part = injected_message.partition("[user]")
+                    injected_message = f"{head}[user]\n{block_str}\n{user_part}"
+                else:
+                    injected_message = f"{injected_message}\n\n{block_str}"
+        except Exception as _e:
+            logger.debug(f"vision block injection failed: {_e}")
+    elif request.files and request.vision_supported is False:
+        # OCR fallback：仅对图片类型
+        try:
+            from file_parser import build_ocr_context
+
+            ocr_ctx = build_ocr_context(request.files, upload_root=str(_UPLOAD_ROOT))
+            if ocr_ctx:
+                ocr_meta_blocks.append(ocr_ctx)
+        except Exception as _e:
+            logger.debug(f"ocr fallback injection failed: {_e}")
+        # 即使 OCR 失败，也要把图片的 fallback 文本（来自 build_attached_context）补上
+        # 已被前面的 build_attached_context 注入；这里仅在没有 attached 时补一个 [图片附件] 提示
+        if not any("图片附件" in f.get("parsed_text", "") for f in (request.files or []) if f.get("file_type", "").startswith("image")):
+            img_names = [f.get("file_name", "image") for f in (request.files or []) if str(f.get("file_type", "")).startswith("image") or str(f.get("content_type", "")).startswith("image/")]
+            if img_names:
+                fallback_line = "[图片附件] " + ", ".join(img_names) + " （模型不支持 vision，OCR 不可用，仅作文本提示）"
+                if "[user]" in injected_message:
+                    head, _, user_part = injected_message.partition("[user]")
+                    injected_message = f"{head}[user]\n{fallback_line}\n{user_part}"
+                else:
+                    injected_message = f"{injected_message}\n\n{fallback_line}"
+
+    async def event_gen():
+        # 先 yield 一个 start 事件（注入 agent metadata，前端可订阅）
+        start_payload: Dict[str, Any] = {"type": "start", "data": ""}
+        if preset_info:
+            start_payload.update(preset_info)
+        if effective_temperature is not None:
+            start_payload["temperature"] = effective_temperature
+        if effective_tools is not None:
+            start_payload["tools"] = list(effective_tools)
+        if request.vision_supported is not None:
+            start_payload["vision_supported"] = bool(request.vision_supported)
+        try:
+            yield f"event: start\ndata: {json.dumps(start_payload, ensure_ascii=False)}\n\n"
+        except Exception:
+            pass
+
+        # P1-2 — 是否已经成功送出 complete/error 帧（前端据此判断是否要重试）
+        saw_terminal = False
+        try:
+            # 优先使用 _stream_async（真流式），否则 fallback 到 run_stream（同步聚合）
+            used_async = False
+            stream_async = getattr(proxy, "_stream_async", None)
+            if callable(stream_async):
+                try:
+                    agen = stream_async(injected_message, session_id=sid)
+                    if hasattr(agen, "__aiter__"):
+                        used_async = True
+                        async for c in agen:
+                            if not isinstance(c, dict):
+                                c = {"type": "text", "data": str(c)}
+                            event_type = c.get("type", "chunk")
+                            if preset_info and event_type in ("complete", "message_end"):
+                                c = {**c, **preset_info}
+                            # P1-2：标记已发出 complete/end 类终止帧
+                            if event_type in ("complete", "message_end"):
+                                saw_terminal = True
+                            yield f"event: {event_type}\ndata: {json.dumps(c, ensure_ascii=False)}\n\n"
+                except Exception as _ae:
+                    logger.debug(f"_stream_async failed, falling back: {_ae}")
+                    used_async = False
+            if not used_async:
+                chunks = proxy.run_stream(injected_message, session_id=sid)
+                if not isinstance(chunks, list):
+                    if isinstance(chunks, dict):
+                        chunks = [chunks]
+                    else:
+                        chunks = [{"type": "text", "data": str(chunks)}]
+                for c in chunks:
+                    if not isinstance(c, dict):
+                        c = {"type": "text", "data": str(c)}
+                    event_type = c.get("type", "chunk")
+                    # 把 preset metadata 透传到 start 事件之外的 chunk/complete 上（前端能用）
+                    if preset_info and event_type in ("complete", "message_end"):
+                        c = {**c, **preset_info}
+                    if event_type in ("complete", "message_end"):
+                        saw_terminal = True
+                    yield f"event: {event_type}\ndata: {json.dumps(c, ensure_ascii=False)}\n\n"
         except Exception as e:
-            yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
+            # P1-2 — 异常时区分可重试与不可重试：
+            #   - 网络 / 临时故障（连接中断、超时、SSL、5xx） → retryable=True
+            #   - 业务错误（参数错误、上下文超限、安全拦截） → retryable=False
+            err_msg = str(e)
+            err_lower = err_msg.lower()
+            retryable = any(
+                kw in err_lower
+                for kw in (
+                    "timeout",
+                    "timed out",
+                    "connection",
+                    "network",
+                    "ssl",
+                    "reset",
+                    "broken pipe",
+                    "temporarily",
+                    "unavailable",
+                    "503",
+                    "502",
+                    "504",
+                    "429",
+                )
+            ) and not any(
+                # 即便含 4xx/5xx 字样，若本质是用户错误，仍不可重试
+                kw in err_lower
+                for kw in ("validation", "invalid input", "permission", "auth", "forbidden")
+            )
+            yield (
+                "event: error\n"
+                f"data: {json.dumps({'error': err_msg, 'retryable': retryable, 'phase': 'event_gen'}, ensure_ascii=False)}\n\n"
+            )
+        else:
+            # P1-2：异常分支没走但 saw_terminal=False（即上游没发 complete/error 但流结束）
+            # 这种"流静默断开"是网络层错误的常见表现 → 让前端可重试
+            if not saw_terminal:
+                yield (
+                    "event: error\n"
+                    f"data: {json.dumps({'error': 'Stream ended without terminal event', 'retryable': True, 'phase': 'stream_silent_close'}, ensure_ascii=False)}\n\n"
+                )
+        yield "event: end\ndata: {}\n\n"
+
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# ============================================================
+# Milestone 2.2.3 — Supervisor Multi-Agent SSE 端点
+# ============================================================
+# 入口路径：POST /api/chat/supervisor/stream
+# 功能：
+#   - 由 Supervisor 主控图驱动 Worker 子图；
+#   - 通过 SupervisorStateRouter 推送 event: agent_switch 帧（携带 agent / reason）；
+#   - 保留 SqliteSaver Checkpointer 状态持久化（与单 Agent 流一致）。
+# ============================================================
+
+
+@app.post("/api/chat/supervisor/stream")
+async def chat_supervisor_stream_sse(request: ChatRequest):
+    """SSE 端点：Multi-Agent Supervisor 模式（Milestone 2.2.3）。
+
+    与单 Agent 路径区别：
+      1. 每次 Supervisor 决策切换 Worker 时，推送 ``event: agent_switch`` 帧；
+         payload = {"type": "agent_switch", "agent": "<name>", "reason": "<thought>"}；
+      2. 整个流程由 LangGraph StateGraph 驱动，状态被 SqliteSaver 完整持久化；
+      3. 兼容 fallback：当 Supervisor 模块或 LangGraph 不可用时，自动回退到普通
+         chat_stream_sse 行为（仅一个 start + 文本 chunks）。
+
+    请求体（继承 ChatRequest）：
+      - message: 用户输入
+      - session_id: LangGraph thread_id
+    """
+    if not request.message:
+        raise HTTPException(status_code=400, detail="message required")
+    sid = request.session_id or str(uuid.uuid4())
+
+    async def event_gen():
+        # start 帧
+        start_payload: Dict[str, Any] = {
+            "type": "start",
+            "data": "",
+            "mode": "supervisor",
+        }
+        try:
+            yield f"event: start\ndata: {json.dumps(start_payload, ensure_ascii=False)}\n\n"
+        except Exception:
+            pass
+
+        # 尝试构造 Supervisor 工作流；失败时优雅降级
+        try:
+            from supervisor_agent import (
+                build_supervisor_workflow,
+                default_supervisor_llm,
+                stream_supervisor,
+            )
+            from agent_workers import build_default_workers
+            from langgraph.checkpoint.memory import MemorySaver  # type: ignore
+        except Exception as e:
+            logger.debug(f"supervisor module unavailable, degrade: {e}")
+            yield f"event: error\ndata: {json.dumps({'error': f'supervisor unavailable: {e}'}, ensure_ascii=False)}\n\n"
+            yield "event: end\ndata: {}\n\n"
+            return
+
+        # 构造工作流（SqliteSaver 检查失败时降级 MemorySaver；生产路径走 SqliteSaver）
+        checkpointer = None
+        try:
+            from agent import AIAgent  # type: ignore
+
+            inner = AIAgent.__new__(AIAgent)
+            inner._init_checkpointer(memory_fallback=True)
+            checkpointer = inner.checkpointer
+        except Exception:
+            checkpointer = None
+
+        # Supervisor 切换 Worker 时推 SSE 帧
+        switch_buffer: List[Dict[str, Any]] = []
+
+        def _on_agent_switch(event: Dict[str, Any]) -> None:
+            """Supervisor 切换 Worker 的回调：把事件塞入缓冲（stream 协程外层读取）。"""
+            try:
+                switch_buffer.append(event)
+            except Exception:
+                pass
+
+        try:
+            workflow = build_supervisor_workflow(
+                supervisor_llm=default_supervisor_llm(),
+                workers=build_default_workers(),
+                checkpointer=checkpointer,
+                on_agent_switch=_on_agent_switch,
+            )
+        except Exception as e:
+            logger.warning(f"build_supervisor_workflow failed: {e}")
+            yield f"event: error\ndata: {json.dumps({'error': f'workflow build failed: {e}'}, ensure_ascii=False)}\n\n"
+            yield "event: end\ndata: {}\n\n"
+            return
+
+        # 把 Supervisor 流的每个更新事件转 SSE；切换事件从 switch_buffer 拉
+        config = {"configurable": {"thread_id": sid}}
+        initial_messages = [{"role": "user", "content": request.message}]
+
+        try:
+            for chunk in stream_supervisor(
+                workflow,
+                initial_messages=initial_messages,
+                config=config,
+                stream_mode="updates",
+            ):
+                # 把切换帧刷出去（每个 step 最多一个 agent_switch）
+                if switch_buffer:
+                    for evt in switch_buffer:
+                        try:
+                            yield f"event: agent_switch\ndata: {json.dumps(evt, ensure_ascii=False)}\n\n"
+                        except Exception:
+                            pass
+                    switch_buffer.clear()
+                # chunk 自身也转 SSE
+                if isinstance(chunk, dict):
+                    if chunk.get("type") == "error":
+                        yield f"event: error\ndata: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+                    else:
+                        yield f"event: update\ndata: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            logger.error(f"supervisor stream failed: {e}")
+            yield f"event: error\ndata: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
+
+        # 收尾（complete 帧让前端关闭流）
+        try:
+            yield "event: complete\ndata: {}\n\n"
+        except Exception:
+            pass
         yield "event: end\ndata: {}\n\n"
 
     return StreamingResponse(
@@ -1170,11 +1655,150 @@ async def get_models():
 # ============================================================
 # Agents / Capabilities / Load
 # ============================================================
+
+
+# v2.1 — Agent Preset Pydantic 模型
+class AgentPresetCreateRequest(BaseModel):
+    name: str
+    description: str = ""
+    avatar: str = "🤖"
+    system_prompt: str = ""
+    temperature: float = 0.7
+    tools: List[str] = []
+    id: Optional[str] = None
+
+
+class AgentPresetUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    avatar: Optional[str] = None
+    system_prompt: Optional[str] = None
+    temperature: Optional[float] = None
+    tools: Optional[List[str]] = None
+
+
+def _get_preset_store():
+    from agent_config import get_preset_store
+    return get_preset_store()
+
+
 @app.get("/api/agents")
 async def list_agents():
+    """v2.1 — 同时返回 worker 列表 + 全部 preset（含 builtin）。
+    旧前端只读 ``agents`` 字段，扩展时不再破坏兼容。
+    """
     proxy = get_proxy()
     workers = proxy.list_workers()
-    return {"agents": workers, "count": len(workers)}
+    presets: List[Dict[str, Any]] = []
+    try:
+        from agent_config import get_preset_store
+        store = get_preset_store()
+        presets = [p.to_dict() for p in store.list()]
+    except Exception as e:
+        logger.debug(f"presets list failed: {e}")
+    return {
+        "agents": workers,
+        "presets": presets,
+        "count": len(workers) + len(presets),
+    }
+
+
+@app.get("/api/agents/presets")
+async def list_presets():
+    """v2.1 — 列出全部 Agent Preset（包含 builtin）。"""
+    try:
+        store = _get_preset_store()
+        items = [p.to_dict() for p in store.list()]
+        return {"presets": items, "count": len(items)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/agents/presets", status_code=201)
+async def create_preset(req: AgentPresetCreateRequest):
+    """v2.1 — 创建 Agent Preset。"""
+    try:
+        store = _get_preset_store()
+        payload = {
+            "name": req.name,
+            "description": req.description,
+            "avatar": req.avatar,
+            "system_prompt": req.system_prompt,
+            "temperature": req.temperature,
+            "tools": list(req.tools or []),
+        }
+        if req.id:
+            payload["id"] = req.id
+        p = store.create(payload)
+        return p.to_dict()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/agents/presets/{preset_id}")
+async def update_preset(preset_id: str, req: AgentPresetUpdateRequest):
+    """v2.1 — 部分更新 Agent Preset。"""
+    try:
+        store = _get_preset_store()
+        patch: Dict[str, Any] = {}
+        if req.name is not None:
+            patch["name"] = req.name
+        if req.description is not None:
+            patch["description"] = req.description
+        if req.avatar is not None:
+            patch["avatar"] = req.avatar
+        if req.system_prompt is not None:
+            patch["system_prompt"] = req.system_prompt
+        if req.temperature is not None:
+            patch["temperature"] = req.temperature
+        if req.tools is not None:
+            patch["tools"] = list(req.tools)
+        p = store.update(preset_id, patch)
+        return p.to_dict()
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/agents/presets/{preset_id}")
+async def delete_preset(preset_id: str):
+    """v2.1 — 删除 Agent Preset（builtin 不可删 → 403）。"""
+    try:
+        store = _get_preset_store()
+        ok = store.delete(preset_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="preset not found")
+        return {"deleted": preset_id}
+    except HTTPException:
+        raise
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/agents/tools/specs")
+async def get_agents_tool_specs(names: str = ""):
+    """v2.1 — 列出指定工具名的 OpenAI function-calling 风格 spec。
+
+    用法：GET /api/agents/tools/specs?names=web_search,python_interpreter
+    """
+    try:
+        from v21_tools import get_tool_specs, TOOL_REGISTRY
+
+        name_list = [n.strip() for n in (names or "").split(",") if n.strip()]
+        if not name_list:
+            # 全部
+            name_list = list(TOOL_REGISTRY.keys())
+        specs = get_tool_specs(name_list)
+        return {"tools": specs, "count": len(specs)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/capabilities")
@@ -1187,6 +1811,99 @@ async def list_capabilities():
 async def get_load_stats():
     proxy = get_proxy()
     return proxy.get_load_stats()
+
+
+# ============================================================
+# v2.2.2 — RAG / Local Chroma KB Endpoints
+# ============================================================
+
+
+class RAGIndexRequest(BaseModel):
+    """v2.2.2 — /api/rag/index_file body 模型。"""
+    file_id: str
+    session_id: str
+    file_name: Optional[str] = None
+    upload_root: Optional[str] = None  # 测试 / 自定义根目录时使用
+
+
+@app.post("/api/rag/index_file")
+async def rag_index_file(req: RAGIndexRequest):
+    """v2.2.2 — 索引一个已上传文件到当前 session 的 Chroma KB。
+
+    流程：file_id 找磁盘文件 → parse_file 解析 → 切分 → upsert_chunks。
+    """
+    try:
+        from rag_service import get_rag_service
+
+        svc = get_rag_service()
+        result = svc.index_file(
+            session_id=req.session_id,
+            file_id=req.file_id,
+            file_name=req.file_name,
+            upload_root=req.upload_root or str(_UPLOAD_ROOT),
+        )
+        if not result.get("success"):
+            # 不抛 500（"no text extracted" 是正常业务结果），用 200 表达
+            return {"success": False, **result}
+        return {"success": True, **result}
+    except Exception as e:
+        logger.error(f"rag_index_file failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/rag/files/{file_id}")
+async def rag_delete_file(file_id: str, session_id: str):
+    """v2.2.2 — 清理某 session 下指定 file_id 的所有向量切片。"""
+    try:
+        from rag_service import get_rag_service
+
+        svc = get_rag_service()
+        n = svc.delete_file(session_id=session_id, file_id=file_id)
+        return {"success": True, "file_id": file_id, "deleted_chunks": n}
+    except Exception as e:
+        logger.error(f"rag_delete_file failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/rag/files")
+async def rag_list_files(session_id: str):
+    """v2.2.2 — 列出某 session 已索引的文件（聚合到 file_id 维度）。"""
+    try:
+        from rag_service import get_rag_service
+
+        svc = get_rag_service()
+        files = svc.list_files(session_id=session_id)
+        return {"success": True, "session_id": session_id, "files": files, "count": len(files)}
+    except Exception as e:
+        logger.error(f"rag_list_files failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/rag/search")
+async def rag_search(payload: Dict[str, Any]):
+    """v2.2.2 — 内部 / 调试用：直接调 vector_store 做 session 内检索。
+
+    body: {"session_id": "...", "query": "...", "top_k": 3, "min_score": 0.05}
+    """
+    try:
+        sid = str(payload.get("session_id") or "")
+        query = str(payload.get("query") or "")
+        top_k = int(payload.get("top_k") or 3)
+        min_score = float(payload.get("min_score") or 0.0)
+        if not sid or not query:
+            raise HTTPException(status_code=400, detail="session_id and query required")
+        from rag_service import get_rag_service
+
+        svc = get_rag_service()
+        results = svc.search(
+            session_id=sid, query=query, top_k=top_k, min_score=min_score
+        )
+        return {"success": True, "session_id": sid, "results": results, "count": len(results)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"rag_search failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ============================================================
@@ -1259,6 +1976,416 @@ async def hitl_stats():
 async def hitl_policy(hook_point: str, policy: str):
     proxy = get_proxy()
     return proxy.set_hitl_policy(hook_point, policy)
+
+
+# ============================================================
+# v2.2.1 — HITL v2 协议 / Checkpoint 历史 / Time-Travel
+# ============================================================
+
+
+@app.get("/api/hitl/v2/pending")
+async def hitl_v2_pending(session_id: str):
+    """v2.2.1 — 列出某 session 的待审批（来自 hitl_langgraph.HITLStore）。
+
+    返回结构：
+      {
+        "pending": [PendingApproval, ...],
+        "count": int,
+        "session_id": str,
+      }
+    """
+    try:
+        from hitl_langgraph import HITLStore
+
+        items = HITLStore.instance().list_pending(session_id=session_id)
+        return {
+            "pending": [p.to_dict() for p in items],
+            "count": len(items),
+            "session_id": session_id,
+        }
+    except Exception as e:
+        logger.error(f"hitl_v2_pending failed: {e}")
+        return {
+            "pending": [],
+            "count": 0,
+            "session_id": session_id,
+            "error": str(e),
+        }
+
+
+@app.post("/api/chat/approve")
+async def chat_approve(req: HITLChatDecision):
+    """v2.2.1 — 批准一条高风险工具调用。
+
+    行为：
+      - 在 HITLStore 中把对应 request_id 标记为 approved，并把 tool_args 写入 decision_payload
+      - 不存在 → 404
+      - 已经被 resolved（approved / rejected）→ 409
+      - session_id 与 pending 不一致 → 404
+      - v2.2.1 — 支持 edited_args（Edit & Resume）：若提供 edited_args 则用其覆盖原 tool_args，
+        并在 store 中标记 edited=True
+    """
+    try:
+        from hitl_langgraph import HITLStore
+
+        store = HITLStore.instance()
+        existing = store.get(req.request_id)
+        if existing is None:
+            raise HTTPException(status_code=404, detail="request not found")
+        if existing.session_id != req.session_id:
+            raise HTTPException(status_code=404, detail="session mismatch")
+        if existing.status in ("approved", "rejected"):
+            raise HTTPException(
+                status_code=409,
+                detail=f"request already {existing.status}",
+            )
+        # v2.2.1 — edited_args 优先于 tool_args
+        effective_args: Optional[Dict[str, Any]] = (
+            req.edited_args
+            if req.edited_args is not None
+            else req.tool_args
+        )
+        updated = store.approve(req.request_id, tool_args=effective_args)
+        if updated is None:
+            raise HTTPException(status_code=404, detail="approve failed")
+        # v2.3.1 — Observability: 关闭挂起的 HITL Span
+        try:
+            from observability.hitl_span import resume_hitl_span
+
+            resume_hitl_span(
+                req.request_id,
+                "approved",
+                tool_name=updated.tool_name,
+                extra_attrs={"hitl.edited": bool(updated.edited)},
+            )
+        except Exception:
+            pass
+        return {
+            "success": True,
+            "request_id": updated.request_id,
+            "decision": "approved",
+            "tool_args": updated.decision_payload or {},
+            "tool_name": updated.tool_name,
+            "session_id": updated.session_id,
+            "edited": bool(updated.edited),
+            # P1-5：前端拿到后 GET 这个 SSE 端点订阅续生成流
+            "resume_url": f"/api/chat/{updated.request_id}/resume",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"chat_approve failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/chat/reject")
+async def chat_reject(req: HITLChatDecision):
+    """v2.2.1 — 拒绝一条高风险工具调用。
+
+    行为：
+      - 写入 reject_reason（默认 "Action cancelled by user"）
+      - 不存在 / 已被 resolved → 4xx
+    """
+    try:
+        from hitl_langgraph import HITLStore
+
+        store = HITLStore.instance()
+        existing = store.get(req.request_id)
+        if existing is None:
+            raise HTTPException(status_code=404, detail="request not found")
+        if existing.session_id != req.session_id:
+            raise HTTPException(status_code=404, detail="session mismatch")
+        if existing.status in ("approved", "rejected"):
+            raise HTTPException(
+                status_code=409,
+                detail=f"request already {existing.status}",
+            )
+        reason = (req.reason or "").strip() or "Action cancelled by user"
+        updated = store.reject(req.request_id, reason=reason)
+        if updated is None:
+            raise HTTPException(status_code=404, detail="reject failed")
+        # v2.3.1 — Observability: 关闭挂起的 HITL Span
+        try:
+            from observability.hitl_span import resume_hitl_span
+
+            resume_hitl_span(
+                req.request_id,
+                "rejected",
+                tool_name=updated.tool_name,
+                extra_attrs={"hitl.reject_reason": reason[:80]},
+            )
+        except Exception:
+            pass
+        return {
+            "success": True,
+            "request_id": updated.request_id,
+            "decision": "rejected",
+            "reason": updated.reject_reason or reason,
+            "tool_name": updated.tool_name,
+            "session_id": updated.session_id,
+            # P1-5：前端拿到后 GET 这个 SSE 端点订阅续生成流
+            "resume_url": f"/api/chat/{updated.request_id}/resume",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"chat_reject failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/chat/{request_id}/resume")
+async def chat_resume(request_id: str, session_id: str):
+    """P1-5 — HITL 拒绝/批准后恢复生成（SSE 端点）。
+
+    流程：
+      1) 用 session_id + request_id 调 hitl_resume.resume_after_decision
+      2) 它会从 HITLStore 取决策：
+         - approved → 实际执行工具 + 注入 ToolMessage(result) + agent.invoke 续生成
+         - rejected → 注入 ToolMessage(reason) + agent.invoke 续生成
+      3) 把续生成 dict 事件序列化为 SSE 流（与 /api/chat/stream 同一协议）
+      4) 用户 abort（client disconnect）→ asyncio.CancelledError 静默退出
+
+    错误码：
+      - 404 request not found
+      - 400 决策仍 pending（用户还没点完）
+      - 503 agent/checkpointer 未初始化
+    """
+    # session_id 必须从 query 取（FastAPI Path 与 Query 同时需要）
+    from fastapi import Request as _Req  # type: ignore
+
+    # —— 参数与决策校验 ——
+    if not request_id or not session_id:
+        raise HTTPException(status_code=400, detail="request_id and session_id required")
+
+    # 提前确认决策（避免后面 stream 中段才发现）
+    try:
+        from hitl_langgraph import resolve_after_decision
+        decision = resolve_after_decision(request_id, session_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"resolve_after_decision failed: {e}")
+    if decision is None:
+        raise HTTPException(status_code=404, detail="request not found / session mismatch")
+    if decision.get("decision") == "pending":
+        raise HTTPException(status_code=400, detail="decision still pending")
+
+    agent = _agent_instance
+    if agent is None:
+        raise HTTPException(status_code=503, detail="agent not initialized")
+
+    # —— 流式生成 ——
+    async def event_gen():
+        # P1-2 风格的 start 帧
+        start_payload = {
+            "type": "start",
+            "data": "",
+            "phase": "hitl_resume",
+            "decision": decision.get("decision"),
+            "tool_name": decision.get("tool_name"),
+            "tool_call_id": decision.get("tool_call_id"),
+        }
+        try:
+            yield f"event: start\ndata: {json.dumps(start_payload, ensure_ascii=False)}\n\n"
+        except Exception:
+            pass
+
+        saw_terminal = False
+        try:
+            from hitl_resume import resume_after_decision
+            agen = await resume_after_decision(
+                request_id=request_id,
+                session_id=session_id,
+                agent=agent,
+            )
+            if agen is None:
+                yield (
+                    "event: error\n"
+                    f"data: {json.dumps({'error': 'resume_after_decision returned None', 'retryable': False, 'phase': 'hitl_resume'}, ensure_ascii=False)}\n\n"
+                )
+            else:
+                async for ev in agen:
+                    if not isinstance(ev, dict):
+                        ev = {"type": "text", "data": str(ev)}
+                    event_type = ev.get("type", "chunk")
+                    if event_type in ("complete", "message_end"):
+                        saw_terminal = True
+                    yield f"event: {event_type}\ndata: {json.dumps(ev, ensure_ascii=False)}\n\n"
+        except asyncio.CancelledError:
+            # 用户 abort
+            return
+        except Exception as e:
+            err_msg = str(e)
+            yield (
+                "event: error\n"
+                f"data: {json.dumps({'error': err_msg, 'retryable': False, 'phase': 'hitl_resume'}, ensure_ascii=False)}\n\n"
+            )
+        else:
+            if not saw_terminal:
+                yield (
+                    "event: error\n"
+                    f"data: {json.dumps({'error': 'HITL resume stream ended without terminal event', 'retryable': True, 'phase': 'hitl_resume_silent_close'}, ensure_ascii=False)}\n\n"
+                )
+        yield "event: end\ndata: {}\n\n"
+
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+def _list_checkpoints_for_session(session_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+    """v2.2.1 — 内部辅助：从当前 AIAgent 的 checkpointer 列出 checkpoints。
+
+    兼容：agent 未初始化 / checkpointer 不可用 → 返回空列表 + note。
+    """
+    out: List[Dict[str, Any]] = []
+    note: Optional[str] = None
+    try:
+        agent = _agent_instance
+        if agent is None or getattr(agent, "checkpointer", None) is None:
+            note = "agent not initialized"
+            return out
+        saver = agent.checkpointer
+        cfg = {"configurable": {"thread_id": session_id}}
+        try:
+            for ck in saver.list(cfg):
+                ckpt = getattr(ck, "checkpoint", None) or {}
+                meta = getattr(ck, "metadata", None) or {}
+                cid = (
+                    ckpt.get("id")
+                    if isinstance(ckpt, dict)
+                    else getattr(ckpt, "id", None)
+                )
+                step = (
+                    ckpt.get("step")
+                    if isinstance(ckpt, dict)
+                    else getattr(ckpt, "step", None)
+                )
+                ts = (
+                    ckpt.get("ts")
+                    if isinstance(ckpt, dict)
+                    else getattr(ckpt, "ts", None)
+                )
+                out.append(
+                    {
+                        "thread_id": session_id,
+                        "checkpoint_id": str(cid) if cid else "",
+                        "step": int(step) if step is not None else 0,
+                        "ts": ts,
+                        "next_node": (
+                            meta.get("next") if isinstance(meta, dict) else None
+                        ),
+                        "metadata": meta if isinstance(meta, dict) else {},
+                    }
+                )
+                if len(out) >= limit:
+                    break
+        except Exception as e:
+            note = f"saver.list failed: {e}"
+    except Exception as e:
+        note = f"checkpoint read failed: {e}"
+    out.append({"__note__": note} if note else {})
+    return out
+
+
+@app.get("/api/checkpoints/list")
+async def checkpoints_list(session_id: str, limit: int = 50):
+    """v2.2.1 — 列出某 session 的 checkpoints（Time-Travel 基础）。"""
+    try:
+        raw = _list_checkpoints_for_session(session_id, limit=limit)
+    except Exception as e:
+        logger.error(f"checkpoints_list failed: {e}")
+        return {
+            "checkpoints": [],
+            "count": 0,
+            "session_id": session_id,
+            "note": "agent not initialized" if _agent_instance is None else f"error: {e}",
+        }
+    note: Optional[str] = None
+    items: List[Dict[str, Any]] = []
+    for r in raw:
+        if "__note__" in r:
+            note = r["__note__"]
+            continue
+        items.append(r)
+    # 始终包含 note 字段（agent 未初始化时 = "agent not initialized"）
+    if note is None and not items:
+        note = "agent not initialized"
+    return {
+        "checkpoints": items,
+        "count": len(items),
+        "session_id": session_id,
+        "note": note or "",
+    }
+
+
+@app.get("/api/checkpoints/get")
+async def checkpoints_get(
+    session_id: str = "", checkpoint_id: str = ""
+):
+    """v2.2.1 — 拉取单个 checkpoint 的完整 state。
+
+    兼容：当 agent 未初始化 / 缺参数时返回 503（避免 422 校验错）。
+    """
+    if not session_id or not checkpoint_id:
+        # 缺参数时返回 503（与 agent 未初始化同等待遇），避免 422 校验错
+        raise HTTPException(
+            status_code=503, detail="agent not initialized or missing parameter"
+        )
+    try:
+        agent = _agent_instance
+        if agent is None or getattr(agent, "checkpointer", None) is None:
+            raise HTTPException(
+                status_code=503, detail="agent not initialized"
+            )
+        saver = agent.checkpointer
+        cfg = {"configurable": {"thread_id": session_id}}
+        target = None
+        try:
+            for ck in saver.list(cfg):
+                ckpt = getattr(ck, "checkpoint", None) or {}
+                cid = (
+                    ckpt.get("id")
+                    if isinstance(ckpt, dict)
+                    else getattr(ckpt, "id", None)
+                )
+                if str(cid) == str(checkpoint_id):
+                    target = ck
+                    break
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"saver.list failed: {e}")
+        if target is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"checkpoint {checkpoint_id} not found in session {session_id}",
+            )
+        ckpt = getattr(target, "checkpoint", None) or {}
+        meta = getattr(target, "metadata", None) or {}
+        config = getattr(target, "config", None) or {}
+        return {
+            "thread_id": session_id,
+            "checkpoint_id": str(checkpoint_id),
+            "step": (
+                ckpt.get("step")
+                if isinstance(ckpt, dict)
+                else getattr(ckpt, "step", 0)
+            ),
+            "values": ckpt.get("channel_values", {})
+            if isinstance(ckpt, dict)
+            else getattr(ckpt, "channel_values", {}),
+            "next": (
+                ckpt.get("next")
+                if isinstance(ckpt, dict)
+                else getattr(ckpt, "next", [])
+            ),
+            "config": config,
+            "metadata": meta,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"checkpoints_get failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ============================================================
@@ -1639,6 +2766,50 @@ async def serve_upload(name: str):
     elif name.lower().endswith((".txt", ".md")):
         mt = "text/plain; charset=utf-8"
     return FileResponse(str(p), media_type=mt)
+
+
+@app.post("/api/files/upload")
+async def upload_file(file: "UploadFile" = File(...)):
+    """v2.1 — 接收 multipart 上传，落到 _UPLOAD_ROOT 并自动 parse。
+
+    返回结构：
+      {
+        file_id: str,           — 上传后的文件名（uuid + 原后缀）
+        file_name: str,         — 原始文件名
+        file_type: str,         — 后缀
+        size: int,
+        parsed: {kind, text, markdown, meta}
+      }
+    """
+    try:
+        from fastapi import UploadFile
+        from file_parser import parse_file, ParsedFile
+
+        # 1) 落盘
+        raw = await file.read()
+        ext = ""
+        if file.filename and "." in file.filename:
+            ext = "." + file.filename.rsplit(".", 1)[-1].lower()
+        file_id = f"{uuid.uuid4().hex[:16]}{ext}"
+        dest = _UPLOAD_ROOT / file_id
+        dest.write_bytes(raw)
+        # 2) parse
+        parsed: ParsedFile = parse_file(str(dest), filename=file.filename or file_id)
+        # 3) 响应
+        return {
+            "file_id": file_id,
+            "file_name": file.filename or file_id,
+            "file_type": ext.lstrip(".") or "bin",
+            "size": len(raw),
+            "parsed": {
+                "kind": parsed.kind,
+                "text": parsed.text,
+                "markdown": parsed.markdown,
+                "meta": parsed.meta or {},
+            },
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"upload failed: {e}")
 
 
 # ============================================================

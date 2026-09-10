@@ -48,6 +48,54 @@ export interface PendingApproval {
   createdAt: number;
 }
 
+/**
+ * v2.2.1 — HITL 拦截事件
+ *
+ * 后端 SSE 事件 `event: approval_required` 解析后的前端类型。
+ * - toolName: 触发拦截的工具名（如 python_interpreter）
+ * - toolArgs: 工具参数快照（用户可二次编辑后批准）
+ * - reason: 给用户的中文解释
+ */
+export interface ApprovalRequiredEvent {
+  request_id: string;
+  session_id: string;
+  tool_name: string;
+  tool_args: Record<string, unknown>;
+  tool_call_id?: string;
+  reason: string;
+  /** v2.2.1 — 超时秒数（默认 300s）；前端用于倒计时显示 */
+  timeout_seconds?: number;
+}
+
+/** v2.2.1 — HITL 超时自动拒绝事件 */
+export interface ApprovalTimeoutEvent {
+  request_id: string;
+  session_id: string;
+  tool_name: string;
+  reason: string;
+}
+
+/** v2.2.1 — checkpoint 历史 API 单条记录的最小形状（Time-Travel 基础） */
+export interface CheckpointSummary {
+  thread_id: string;
+  checkpoint_id: string;
+  step: number;
+  ts?: number;
+  next_node?: string;
+  metadata?: Record<string, unknown>;
+}
+
+/** v2.2.1 — 单个 checkpoint 的完整 state 快照 */
+export interface CheckpointState {
+  thread_id: string;
+  checkpoint_id: string;
+  step: number;
+  values?: Record<string, unknown>;
+  next?: string[];
+  config?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+}
+
 export interface ObsEvent {
   id: string;
   level: 'info' | 'warn' | 'error' | 'debug';
@@ -81,4 +129,21 @@ export interface PersistedAttachment {
   contentType: string;
   size: number;
   uploadedAt: number;
+}
+
+/**
+ * Agent 预设（v2.1）：系统提示 / 温度 / 工具白名单。
+ * 后端 /api/agents/presets 返回结构；前端 AgentConfigModal 用来双向编辑。
+ */
+export interface AgentPreset {
+  id: string;
+  name: string;
+  description?: string;
+  avatar?: string;
+  system_prompt: string;
+  temperature: number;
+  tools: string[];
+  builtin?: boolean;
+  created_at?: number;
+  updated_at?: number;
 }

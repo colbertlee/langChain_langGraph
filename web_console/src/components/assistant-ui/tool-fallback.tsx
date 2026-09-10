@@ -27,7 +27,12 @@ export const ToolCallCard: FC<ToolFallbackProps> = ({ toolName, args, result, st
       : 'text-[var(--success)]';
 
   return (
-    <div className="relative my-2 rounded-[10px] overflow-hidden border border-[var(--border)] bg-[var(--code-bg-card)]">
+    <div
+      className="relative my-2 rounded-[10px] overflow-hidden border border-[var(--border)] bg-[var(--code-bg-card)]"
+      data-testid="tool-fallback"
+      data-tool-name={toolName}
+      data-running={running}
+    >
       <div
         className="absolute left-0 top-0 bottom-0 w-[2px]"
         style={{
@@ -41,14 +46,15 @@ export const ToolCallCard: FC<ToolFallbackProps> = ({ toolName, args, result, st
       <button
         onClick={() => setOpen((v) => !v)}
         className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left"
+        data-testid="tool-fallback-header"
       >
         <Icon className={cn('w-3.5 h-3.5 shrink-0', color, running && 'animate-spin')} strokeWidth={2} />
-        <span className="font-mono text-[12.5px] text-fg0 font-medium">{toolName}</span>
+        <span className="font-mono text-[12.5px] text-fg0 font-medium" data-testid="tool-fallback-name">{toolName}</span>
         <span className="flex-1" />
         {open ? <ChevronDown className="w-3.5 h-3.5 text-fg2" /> : <ChevronRight className="w-3.5 h-3.5 text-fg2" />}
       </button>
       {open && (
-        <div className="border-t border-[var(--border)] px-3.5 py-3 space-y-3 bg-[var(--code-bg-panel)]">
+        <div className="border-t border-[var(--border)] px-3.5 py-3 space-y-3 bg-[var(--code-bg-panel)]" data-testid="tool-fallback-body">
           <Block label="Arguments" text={stringify(args)} />
           {result !== undefined && result !== '' && (
             <Block label="Result" text={typeof result === 'string' ? result : stringify(result)} />

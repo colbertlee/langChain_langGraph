@@ -7,7 +7,7 @@
   "url": "https://github.com/colbertlee/langChain_langGraph/archive/refs/tags/v0.1.0.tar.gz",
   "hash": "fa760fe0ebbf6e90baa84024311ff92db26d96848cc379f6f7580dde73495d54",
   "bin": [
-    ["py", "-m", "ai_agent.web_ui", "ai-agent"]
+    ["py", "-m", "ai_agent.app", "ai-agent"]
   ],
   "post_install": [
     "pip install -e .",

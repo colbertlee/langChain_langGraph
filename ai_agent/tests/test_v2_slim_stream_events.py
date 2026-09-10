@@ -126,11 +126,31 @@ def test_run_stream_safety_event_on_dangerous_input(monkeypatch):
 # ============================================================
 
 def test_tool_call_event_has_name_field():
-    """tool_call 事件的 schema 必须含 name 字段（前端按 name 渲染工具时间线）。"""
+    """tool_call / tool_start 事件的 schema 必须含 name 字段（前端按 name 渲染工具时间线）。
+
+    v2.5：tool_call 事件升级为三事件族：
+      - tool_start  (含 tool_call_id / name / args)
+      - tool_result (含 tool_call_id / name / result / duration_ms)
+      - tool_end    (含 tool_call_id / name / status / duration_ms)
+      - tool_call   旧事件保留以兼容（仍含 name 字段）
+    """
     import inspect
     from agent import AIAgent
     src = inspect.getsource(AIAgent.run_stream)
-    assert 'name=tool_name' in src, "tool_call 事件必须传 name=tool_name"
+    # 新事件族必须存在
+    for evt in ("tool_start", "tool_result", "tool_end"):
+        assert (
+            f'"{evt}"' in src or f"'{evt}'" in src
+        ), f"run_stream 源码缺少事件类型 {evt}"
+    # 兼容事件 tool_call 仍含 name 字段（前端 P0-2 协议）
+    # 注：实际变量名可能是 tc_name / tool_name / name 等，只要以 "name=" 关键字传就行
+    assert (
+        "name=tc_name" in src
+        or "name=tool_name" in src
+        or 'name=name' in src
+    ), "tool_call 兼容事件必须用 name=xxx 关键字参数传工具名"
+    # 兜底：tool_call_id 用 uuid4().hex
+    assert "uuid4" in src, "tool_call_id 兜底必须用 uuid4().hex"
 
 
 # ============================================================

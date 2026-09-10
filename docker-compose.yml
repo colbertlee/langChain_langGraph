@@ -1,64 +1,68 @@
-# docker-compose.yml — AI Agent Console 生产部署 (v2.0.11)
+# docker-compose.yml — AI Agent Console 生产部署
 #
-# 默认 profile（生产）：
-#   - api     : FastAPI 后端 (Python:3.11-slim, 端口 8000, 不对外暴露)
-#   - web     : Nginx 反向代理 (端口 80, 对外唯一入口)
-#   网络隔离：api 只对 web 暴露，外部只能从 80 访问
+# 拓扑（前后端彻底解耦）：
+#       ┌──────────────┐   /api/   ┌──────────────┐
+#       │   frontend   │ ────────► │   backend    │
+#       │  (nginx:80)  │           │ (FastAPI:8000)│
+#       └──────┬───────┘           └──────┬───────┘
+#              │                          │
+#              ▼                          ▼
+#         host :80                  ai-agent-net (内部网络)
 #
-# 数据持久化（Volume）：
-#   - ai_agent_data    : SQLite + 上传文件 + memory store
-#   - ai_agent_uploads : 用户上传文件 (单独卷便于备份)
+# - frontend：基于 web_console/Dockerfile（多阶段 node:20 → nginx:alpine）
+#             监听 host:80，对外唯一入口；/api/ 反代到 backend:8000
+# - backend ：基于 ai_agent/Dockerfile（python:3.11-slim + uvicorn）
+#             仅 expose: 8000，对 host 不可见
 #
-# 安全硬化（生产）：
-#   - AI_AGENT_INMEM_CHECKPOINT=0  强制 checkpointer 失败防护生效
-#                                （SqliteSaver 失败时拒绝降级到 MemorySaver，
-#                                 防止静默丢失会话）
-#   - AI_AGENT_DISABLE_PLACEHOLDER_CHECK=1  阻止 placeholder key 跳过 LLM 初始化
-#   - 后端 8000 端口不暴露到 host，仅 web:80 对外
+# 关键生产配置：
+#   - SSE / 流式响应：nginx proxy_buffering off + proxy_request_buffering off + X-Accel-Buffering no
+#   - 网络隔离：backend 不映射 host port；仅 frontend 暴露 80
+#   - 数据持久化：ai_agent_data + ai_agent_uploads 命名卷
+#   - 安全加固：security_opt: no-new-privileges:true（防 privilege escalation）
+#   - 资源限制：deploy.resources（防容器吃满 host）
+#   - 镜像标签：build args 注入 BUILD_VERSION + BUILD_DATE（docker inspect 可查）
 #
 # 用法：
 #   cp .env.example .env   # 编辑填入 LLM / LangSmith 凭据
-#   ./deploy.sh            # 一键构建并启动（等价于 docker compose up -d --build）
-#   docker compose logs -f web    # 查看 nginx 访问日志
-#   docker compose logs -f api    # 查看后端日志
+#   BUILD_VERSION=2.0.9 BUILD_DATE=$(date -u +%FT%TZ) docker compose build
+#   docker compose up -d --build
+#   docker compose logs -f frontend
+#   docker compose logs -f backend
 #   docker compose down           # 停止（保留卷）
 #   docker compose down -v        # 停止并删除卷（清空数据）
-#
-# 开发模式（不推荐用于生产）：
-#   docker compose --profile dev up frontend-dev  # Vite hot reload
-#
-# E2E 测试：
-#   docker compose --profile test run --rm e2e   # 一次性 Playwright
 
 name: ai-agent-console
 
+x-build-args: &build-args
+  # 注入版本信息；compose 调用方可通过 env var 覆盖
+  BUILD_VERSION: ${BUILD_VERSION:-2.0.9}
+  BUILD_DATE: ${BUILD_DATE:-unknown}
+
 services:
-  # ═══════════════ 后端（FastAPI，不对外） ═══════════════
-  api:
+  # ═══════════════ 后端（FastAPI，仅 API 服务） ═══════════════
+  backend:
     build:
       context: .
-      dockerfile: web_console/Dockerfile
-    image: ai-agent-console:2.0.11
-    container_name: ai-agent-api
+      dockerfile: ai_agent/Dockerfile
+      args:
+        <<: *build-args
+    image: ai-agent-backend:${BUILD_VERSION:-2.0.9}
+    container_name: ai-agent-backend
     restart: unless-stopped
     expose:
-      - "8000"          # 仅对内暴露，不映射到 host
+      - "8000"           # 仅对内暴露，不映射到 host
     env_file:
-      - .env            # 读取根目录 .env（OPENAI_API_KEY / LANGCHAIN_* / 等）
+      - .env
     environment:
-      # ───── 生产安全硬化（env_file 之外的强制项） ─────
-      # 显式 =0：让 SqliteSaver Checkpoint 失败时直接 RuntimeError，
-      # 不静默降级到内存模式（防止容器重启后会话丢失但仍"看起来工作"）
-      AI_AGENT_INMEM_CHECKPOINT: "0"
-      # 显式 =1：拒绝 placeholder key 跳过 LLM 初始化（启动时即失败）
-      AI_AGENT_DISABLE_PLACEHOLDER_CHECK: "1"
-      # 数据 / 上传路径
-      DATA_ROOT: /app/data
-      UPLOAD_ROOT: /app/ai_agent/uploads
       PYTHONUNBUFFERED: "1"
       PYTHONPATH: /app
-      # 日志
+      DATA_ROOT: /app/data
+      UPLOAD_ROOT: /app/ai_agent/uploads
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # 生产安全硬化：禁用 placeholder key 跳过 LLM 初始化
+      AI_AGENT_DISABLE_PLACEHOLDER_CHECK: "1"
+      # 强制 checkpointer 失败时不静默降级到内存
+      AI_AGENT_INMEM_CHECKPOINT: "0"
     volumes:
       - ai_agent_data:/app/data
       - ai_agent_uploads:/app/ai_agent/uploads
@@ -69,21 +73,144 @@ services:
       retries: 3
       start_period: 15s
     networks:
-      - ai-net
-    # 注意：api 没有 ports，对外不可见
+      - ai-agent-net
+      # P2-5 — backend 加入监控网络供 prometheus 抓取 /metrics
+      - monitor-net
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETGID
+      - SETUID
+    deploy:
+      resources:
+        limits:
+          memory: 2G      # 防止内存爆炸（agent + checkpoint + RAG）
+        reservations:
+          memory: 512M
+    # 注意：backend 不映射 ports，对外不可见
 
-  # ═══════════════ Nginx 反向代理（唯一对外入口） ═══════════════
-  web:
-    build:
-      context: .
-      dockerfile: web_console/Dockerfile.nginx
-    image: ai-agent-web:2.0.11
-    container_name: ai-agent-web
+  # ═══════════════ 监控栈（P2-5：Prometheus + Grafana） ═══════════════
+  # 网络拓扑：
+  #   monitor-net ←─────prometheus────→ monitor-net
+  #                  ↓
+  #              backend (双网卡：ai-agent-net + monitor-net)
+  #
+  # 注意：prometheus / grafana 仅接入 monitor-net（不进 ai-agent-net），
+  # 防止业务流量被监控栈意外影响；backend 通过 monitor-net 提供 /metrics 给 prometheus。
+  prometheus:
+    image: prom/prometheus:v2.51.2
+    container_name: ai-agent-prometheus
+    restart: unless-stopped
+    # 业务端口 9090（web UI）；CI / 运维机器拉取指标用
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alerting_rules.yml:/etc/prometheus/alerting_rules.yml:ro
+      - ./monitoring/targets:/etc/prometheus/targets:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+      - "--web.enable-lifecycle"
+      # ──────── 远程写入 / 告警 ────────
+      # 如接 alertmanager：
+      # - "--alertmanager.url=http://alertmanager:9093"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/-/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - monitor-net
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - DAC_OVERRIDE
+      - SETGID
+      - SETUID
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
+
+  grafana:
+    image: grafana/grafana:10.4.2
+    container_name: ai-agent-grafana
     restart: unless-stopped
     ports:
-      - "80:80"          # 生产暴露 80（HTTPS 由前置 LB / CDN 处理）
+      - "3000:3000"
+    environment:
+      # P2-5 — Grafana 自身 metrics 上报给 Prometheus
+      GF_METRICS_BASIC_AUTH_USERNAME: ""
+      GF_METRICS_BASIC_AUTH_PASSWORD: ""
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
+      # 安全：默认 admin 密码（生产请改）
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_INSTALL_PLUGINS: ""
+      GF_LOG_LEVEL: "warn"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/provisioning/dashboards/ai-agent-console:/etc/grafana/provisioning/dashboards/ai-agent-console:ro
+      - grafana_data:/var/lib/grafana
     depends_on:
-      api:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      - monitor-net
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - DAC_OVERRIDE
+      - SETGID
+      - SETUID
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 128M
+
+  # ═══════════════ 前端（Nginx 反代 + 静态资源，对外唯一入口） ═══════════════
+  frontend:
+    build:
+      context: .
+      dockerfile: web_console/Dockerfile
+      args:
+        <<: *build-args
+    image: ai-agent-frontend:${BUILD_VERSION:-2.0.9}
+    container_name: ai-agent-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"           # 仅对 host 暴露 80；HTTPS 由前置 LB / CDN 处理
+    depends_on:
+      backend:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1/api/health"]
@@ -92,56 +219,42 @@ services:
       retries: 3
       start_period: 5s
     networks:
-      - ai-net
-
-  # ─────────────── 前端 dev server（开发模式，可选） ───────────────
-  frontend-dev:
-    image: node:20-alpine
-    container_name: ai-agent-frontend-dev
-    profiles: ["dev"]
-    working_dir: /app
-    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 5173"
-    ports:
-      - "5173:5173"
-    volumes:
-      - ./web_console:/app
-      - frontend_dev_node_modules:/app/node_modules
-    environment:
-      - VITE_API_BASE_URL=http://localhost:8000
-    depends_on:
-      api:
-        condition: service_healthy
-    networks:
-      - ai-net
-
-  # ─────────────── E2E 测试 runner（一次性） ───────────────
-  e2e:
-    image: mcr.microsoft.com/playwright:v1.49.0-jammy
-    container_name: ai-agent-e2e
-    profiles: ["test"]
-    working_dir: /app/web_console
-    command: sh -c "npm install && npx playwright test --reporter=list,html"
-    volumes:
-      - ./web_console:/app/web_console
-      - frontend_dev_node_modules:/app/web_console/node_modules
-    environment:
-      - E2E_BASE_URL=http://web:80
-      - CI=1
-    depends_on:
-      web:
-        condition: service_healthy
-    networks:
-      - ai-net
+      - ai-agent-net
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - NET_BIND_SERVICE
+      - SETGID
+      - SETUID
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 64M
 
 volumes:
   ai_agent_data:
     driver: local
   ai_agent_uploads:
     driver: local
-  frontend_dev_node_modules:
+  prometheus_data:
+    driver: local
+  grafana_data:
     driver: local
 
 networks:
-  ai-net:
-    name: ai-agent-network
+  ai-agent-net:
+    name: ai-agent-net
     driver: bridge
+  # ──────────────── P2-5 监控网络 ────────────────
+  # 与 ai-agent-net 物理隔离（driver: bridge 隔离）
+  # backend 同时接入两个网络以便 prometheus 抓取 /metrics
+  monitor-net:
+    name: ai-agent-monitor-net
+    driver: bridge
+    internal: false   # grafana 需要能被外部访问（host:3000）

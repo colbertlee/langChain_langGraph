@@ -166,7 +166,7 @@ jobs:
       - name: Install minimal deps
         run: pip install fastapi pydantic uvicorn httpx python-multipart
 
-      - name: Try import web_ui
+      - name: Try import app
         working-directory: ai_agent
         continue-on-error: true
         run: |
@@ -174,13 +174,13 @@ jobs:
           import sys
           sys.path.insert(0, '.')
           try:
-              import web_ui
-              print('✅ web_ui imports OK')
-              print('   - app:', type(web_ui.app).__name__)
-              print('   - UPLOAD_ROOT:', web_ui.UPLOAD_ROOT)
-              print('   - _MAX_FILE_SIZE:', web_ui._MAX_FILE_SIZE)
+              import app
+              print('✅ app imports OK')
+              print('   - app:', type(app.app).__name__)
+              print('   - UPLOAD_ROOT:', app.UPLOAD_ROOT)
+              print('   - _MAX_FILE_SIZE:', app._MAX_FILE_SIZE)
           except ImportError as e:
-              print(f'⚠️ web_ui import failed (expected without full deps): {e}')
+              print(f'⚠️ app import failed (expected without full deps): {e}')
               sys.exit(0)  # 不让 CI 红
           except Exception as e:
               print(f'❌ Unexpected error: {e}')

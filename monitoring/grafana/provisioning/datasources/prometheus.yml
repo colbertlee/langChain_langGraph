@@ -1,0 +1,24 @@
+# P2-5 — Grafana 自动加载 Prometheus datasource
+#
+# Grafana 启动时会自动执行本目录所有 yaml；
+# 这里把 Prometheus 数据源绑定到 docker compose 内部网络的 prometheus:9090。
+# 这样 dashboard JSON 里直接引用 ${DS_PROMETHEUS} 即可，无需手动配 UI。
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      # scrape interval 与 prometheus.yml 对齐
+      timeInterval: 15s
+      # HTTP method：GET（默认）
+      httpMethod: GET
+    # 标签：让 dashboard 里能区分
+    labels:
+      service: monitoring

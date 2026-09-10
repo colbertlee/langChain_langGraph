@@ -1,0 +1,183 @@
+name: Deploy Images
+
+# 前后端一键部署（DOCKER 构建 + 推送镜像）
+#
+# 触发条件：
+#   - push tag v*.*.* → 自动构建并推送到 GHCR（GitHub Container Registry）
+#   - workflow_dispatch → 手动选择 target / registry
+#
+# 流程：
+#   1) matrix: backend + frontend 并行 build
+#   2) buildx + cache-from gha 复用 layer
+#   3) 多 tag 推送：
+#       - :<sha>      不可变快照
+#       - :latest     浮标
+#       - :<version>  来自 package.json / pyproject.toml（git tag 时）
+#
+# 使用方式：
+#   # 本地一键部署：
+#   BUILD_VERSION=2.0.9 BUILD_DATE=$(date -u +%FT%TZ) docker compose up -d --build
+#   # 生产部署（推到 GHCR + 拉到生产环境）：
+#   docker pull ghcr.io/<owner>/ai-agent-backend:2.0.9
+#   docker pull ghcr.io/<owner>/ai-agent-frontend:2.0.9
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      registry:
+        description: "Container registry"
+        required: true
+        type: choice
+        default: ghcr.io
+        options:
+          - ghcr.io
+          - docker.io
+
+permissions:
+  contents: read
+  packages: write   # 推 GHCR 需要
+
+env:
+  REGISTRY: ${{ github.event.inputs.registry || 'ghcr.io' }}
+  IMAGE_OWNER: ${{ github.repository_owner }}
+
+jobs:
+  # ════════════════════════════════════════════════════════════════
+  # Build + Push Backend / Frontend（并行 matrix）
+  # ════════════════════════════════════════════════════════════════
+  build:
+    name: Build & Push ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: backend
+            dockerfile: ai_agent/Dockerfile
+            image: ai-agent-backend
+          - target: frontend
+            dockerfile: web_console/Dockerfile
+            image: ai-agent-frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ${{ env.REGISTRY }}
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract version
+        id: version
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            # tag 格式 v2.0.9 → 2.0.9
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="ci-${{ github.sha }}"
+          fi
+          echo "version=$version" >> $GITHUB_OUTPUT
+          echo "sha=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+
+      - name: Build & push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          # 多 tag 推送：sha（不可变）/ version / latest
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ matrix.image }}:${{ steps.version.outputs.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ matrix.image }}:${{ steps.version.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ matrix.image }}:latest
+          build-args: |
+            BUILD_VERSION=${{ steps.version.outputs.version }}
+            BUILD_DATE=${{ github.event.repository.updated_at }}
+          labels: |
+            org.opencontainers.image.title=${{ matrix.image }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+          # 仅在非 PR 时推送
+          push: ${{ github.event_name != 'pull_request' }}
+          # GHA cache（layer 复用）
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # SBOM + provenance（提高供应链透明度）
+          sbom: true
+          provenance: mode=max
+          platforms: linux/amd64,linux/arm64
+
+      - name: Scan image for vulnerabilities (Trivy)
+        if: github.event_name != 'pull_request'
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ matrix.image }}:${{ steps.version.outputs.sha }}
+          format: 'sarif'
+          output: 'trivy-${{ matrix.target }}.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy scan results
+        if: always() && github.event_name != 'pull_request'
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-${{ matrix.target }}.sarif
+          category: trivy-${{ matrix.target }}
+
+  # ════════════════════════════════════════════════════════════════
+  # Smoke test：本地 docker compose up 验证镜像能起来
+  # ════════════════════════════════════════════════════════════════
+  smoke-test:
+    name: Smoke Test (compose up + health)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [build]
+    if: github.event_name != 'pull_request'
+    services:
+      backend:
+        image: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/ai-agent-backend:${{ needs.build.outputs.sha }}
+        env:
+          OPENAI_API_KEY: sk-smoke-test
+          AI_AGENT_DISABLE_PLACEHOLDER_CHECK: "1"
+        options: >-
+          --health-cmd "curl -fsS http://127.0.0.1:8000/api/health"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 3
+      frontend:
+        image: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/ai-agent-frontend:${{ needs.build.outputs.sha }}
+        depends-on:
+          backend:
+            condition: service_healthy
+        ports:
+          - 80:80
+    steps:
+      - uses: actions/checkout@v4
+      - name: Wait for backend healthy
+        run: |
+          echo "等待后端健康检查..."
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:8000/api/health; then
+              echo "✅ Backend healthy"
+              break
+            fi
+            sleep 2
+          done
+      - name: Test frontend → backend proxy
+        run: |
+          # 验证 nginx 反代 backend 工作
+          response=$(curl -fsS -w "\nHTTP_CODE:%{http_code}" http://127.0.0.1/api/health || true)
+          echo "$response"
+          if [[ "$response" != *"HTTP_CODE:200"* ]]; then
+            echo "::error::Frontend → backend proxy failed"
+            exit 1
+          fi
+          echo "✅ Frontend proxy works"

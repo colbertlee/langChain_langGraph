@@ -1,16 +1,13 @@
 """pytest 共享 fixtures 与全局配置。
 
-## 当前测试统计
+## 当前测试统计（v2.5 P2-7 后）
+
+P2-7 清理了 6 个 legacy 文件、共 15 个失败/过期用例，全量跑不再依赖 legacy marker。
 
 ```
 $ pytest tests/ --collect-only -q
-13 tests collected in 0.95s
+834+ tests collected
 ```
-
-| 文件 | 测试数 |
-|---|---|
-| tests/test_basic_endpoints.py | 4 |
-| tests/test_upload.py | 9 |
 
 ## 共享 fixtures
 
@@ -21,6 +18,7 @@ $ pytest tests/ --collect-only -q
 | `sample_messages` | function | 示例 OpenAI 格式消息序列 |
 | `sample_upload_file` | function | 测试用文本文件（tmp_path） |
 | `client` | function (per file) | FastAPI TestClient（test_upload / test_basic_endpoints 各自定义） |
+| `_reset_agent_state_between_tests` (autouse) | function | 每测试前后重置 app 单例 + 强制 placeholder env |
 
 ## pytest 内置 fixture（自动可用）
 
@@ -41,7 +39,7 @@ import pytest
 
 
 # ─────────────── 让 ai_agent/ 包内模块可被 import ───────────────
-# 这样测试文件可以用 `import web_ui` 而不是 `from ..web_ui import`
+# 这样测试文件可以用 `import app` 而不是 `from ..app import`
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -67,7 +65,7 @@ def temp_dir() -> Iterator[str]:
 def isolated_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """隔离环境变量：测试中设置的值不会影响其他测试。
 
-    自动注入 fake API key，避免 web_ui.py 在 import 时调用真实 LLM。
+   # 自动注入 fake API key，避免 app.py 在 import 时调用真实 LLM。
 
     Usage:
         def test_openai_call(isolated_env):
@@ -130,6 +128,7 @@ def _reset_agent_state_between_tests(request, monkeypatch):
     策略：每个测试期间：
     - 用 monkeypatch.setenv("OPENAI_API_KEY", "sk-placeholder-for-tests") 强制短路
     - 清空 app 的模块全局状态（_agent_instance / _proxy_instance）
+    - 清空 HITLStore 单例（v2.2.1）
     """
     # 前置 reset（避免上一个测试残留）
     try:
@@ -138,9 +137,10 @@ def _reset_agent_state_between_tests(request, monkeypatch):
         _app._proxy_instance = None
     except Exception:
         pass
+    # v2.2.1 — HITLStore 单例重置（避免上一个测试残留的 pending 污染）
     try:
-        import web_ui as _webui
-        _webui._agent_holder["agent"] = None
+        import hitl_langgraph as _hitl
+        _hitl.HITLStore.reset_instance()
     except Exception:
         pass
     # 强制 env 含 placeholder key（覆盖用户真实 key）
@@ -161,8 +161,8 @@ def _reset_agent_state_between_tests(request, monkeypatch):
     except Exception:
         pass
     try:
-        import web_ui as _webui
-        _webui._agent_holder["agent"] = None
+        import hitl_langgraph as _hitl
+        _hitl.HITLStore.reset_instance()
     except Exception:
         pass
 
@@ -173,15 +173,14 @@ def pytest_collection_modifyitems(config, items):
     - 含 'integration' 字样的 → @pytest.mark.integration
     - 含 'network' 字样的 → @pytest.mark.network
     - 慢测试（>2s）需要 @pytest.mark.slow 显式声明
-    - legacy 目录下的 → @pytest.mark.legacy
+
+    v2.5（P2-7）：移除了 legacy 自动标记。
+    历史背景：v2.x 重构期间 6 个 legacy 文件被自动打 legacy 标记跳过；
+            P2-7 已全部修复，所有测试默认全量跑，无需再按 legacy 标记排除。
     """
     integration_marker = pytest.mark.integration
     network_marker = pytest.mark.network
-    legacy_marker = pytest.mark.legacy
     for item in items:
-        # legacy 标记
-        if "/legacy/" in item.nodeid:
-            item.add_marker(legacy_marker)
         # integration 标记
         if "integration" in item.nodeid.lower():
             item.add_marker(integration_marker)
@@ -200,7 +199,4 @@ def pytest_configure(config):
     )
     config.addinivalue_line(
         "markers", "slow: 慢测试（>2s）"
-    )
-    config.addinivalue_line(
-        "markers", "legacy: 遗留测试（从 ai_agent/ 根目录迁移来）"
     )

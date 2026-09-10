@@ -1,13 +1,17 @@
 import type {
   Agent,
   Capability,
+  CheckpointState,
+  CheckpointSummary,
   ObsEvent,
   PendingApproval,
   TraceSpan,
 } from '@/types/api';
 
-// API 基础路径：开发期通过 vite proxy 转发到 8000
-const BASE = '/api';
+// API 基础路径：
+//   - 默认走同源 /api（5173 dev server 自己处理，不再代理到 8000）
+//   - 如需对接独立后端，可在 .env / .env.local 设置 VITE_API_BASE=http://localhost:8000/api
+const BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '/api';
 
 /**
  * 把后端 worker dict 规整成前端 Agent 形状。
@@ -94,6 +98,83 @@ export const api = {
 
   // ----- Models / Providers -----
   models: () => json<ModelsBundle>('/models'),
+
+  // ----- Chat 全局操作 -----
+  /**
+   * 清空后端 Checkpointer（即：所有 session 的对话历史）。
+   * SessionSidebar / ChatPage 重置按钮使用。
+   * 后端若未实现 → 抛 404；调用方需 catch 后兜底到本地清空。
+   */
+  clear: () => json<{ ok: boolean; cleared?: number }>('/clear', { method: 'POST' }),
+
+  // ----- v2.2.1 — HITL 审批（per-card） -----
+  /**
+   * 允许一次工具调用。后端会写 HITLStore + 让模型下一轮重新调用该工具。
+   * 入参与后端 HITLDecision 兼容。
+   * P1-5：响应里新增 resume_url 字段，前端拿到后调用 GET /api/chat/{rid}/resume
+   * 订阅续生成 SSE 流。
+   */
+  chatApprove: (payload: {
+    session_id: string;
+    request_id: string;
+    tool_args?: Record<string, unknown>;
+    decided_by?: string;
+  }) =>
+    json<{
+      ok: boolean;
+      request_id: string;
+      decision: string;
+      resume_url?: string;
+    }>('/chat/approve', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  /**
+   * 拒绝一次工具调用。后端会写 HITLStore + 给模型一个取消消息。
+   * P1-5：响应里新增 resume_url 字段，前端拿到后调用 GET /api/chat/{rid}/resume
+   * 订阅续生成 SSE 流。
+   */
+  chatReject: (payload: {
+    session_id: string;
+    request_id: string;
+    reason?: string;
+    decided_by?: string;
+  }) =>
+    json<{
+      ok: boolean;
+      request_id: string;
+      decision: string;
+      resume_url?: string;
+    }>('/chat/reject', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  // ----- v2.1 — Agent Presets CRUD -----
+  listAgentPresets: () =>
+    json<{ presets: import('@/types/api').AgentPreset[]; count?: number } | import('@/types/api').AgentPreset[]>(
+      '/agents/presets',
+    ).then((r) => (Array.isArray(r) ? { presets: r } : r)) as Promise<{ presets: import('@/types/api').AgentPreset[] }>,
+  createAgentPreset: (
+    payload: Partial<import('@/types/api').AgentPreset>,
+  ) =>
+    json<import('@/types/api').AgentPreset>('/agents/presets', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  updateAgentPreset: (
+    id: string,
+    patch: Partial<import('@/types/api').AgentPreset>,
+  ) =>
+    json<import('@/types/api').AgentPreset>(`/agents/presets/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(patch),
+    }),
+  deleteAgentPreset: (id: string) =>
+    json<{ ok: boolean }>(`/agents/presets/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
+
   /**
    * 切换主 provider/model（写到后端 in-memory 配置，立即生效）。
    * 后端路由：POST /api/model/switch，body {provider, model_name}
@@ -103,6 +184,100 @@ export const api = {
       '/model/switch',
       { method: 'POST', body: JSON.stringify({ provider, model_name: model }) },
     ) as Promise<{ success: boolean; message: string; provider: string; model: string }>,
+
+  /**
+   * 测试 Provider 连通性 —— 调用后端 /api/providers/{id}/test
+   * 后端若未实现此端点，返回 ok=false + reason='endpoint_not_found'，
+   * 调用方 UI 应回退到"读取 /api/models 间接验证"或显示降级提示。
+   */
+  testConnection: async (
+    provider: string,
+    apiKey?: string,
+    baseUrl?: string,
+  ): Promise<{
+    ok: boolean;
+    provider: string;
+    latency_ms?: number;
+    message?: string;
+    reason?: string;
+  }> => {
+    const start = performance.now();
+    try {
+      const r = await json<{
+        ok: boolean;
+        provider: string;
+        latency_ms?: number;
+        message?: string;
+        reason?: string;
+      }>(`/providers/${encodeURIComponent(provider)}/test`, {
+        method: 'POST',
+        body: JSON.stringify({
+          api_key: apiKey ?? '',
+          base_url: baseUrl ?? '',
+        }),
+      });
+      return r;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (/^404\b/.test(msg)) {
+        return {
+          ok: false,
+          provider,
+          reason: 'endpoint_not_found',
+          message:
+            '后端未实现 /api/providers/{id}/test；改用 /api/models 间接连通性检查。',
+          latency_ms: performance.now() - start,
+        };
+      }
+      return {
+        ok: false,
+        provider,
+        reason: 'network_error',
+        message: msg,
+        latency_ms: performance.now() - start,
+      };
+    }
+  },
+
+  /**
+   * 把 Provider Key / Base URL 写入后端 .env（持久化到后端进程环境）。
+   * 后端若未实现 → 返回 ok=false + reason='endpoint_not_found'，UI 提示
+   * 用户「请手动写入 ai_agent/.env」。
+   */
+  updateProviderConfig: async (
+    provider: string,
+    payload: { api_key?: string; base_url?: string },
+  ): Promise<{
+    ok: boolean;
+    provider: string;
+    reason?: string;
+    message?: string;
+  }> => {
+    try {
+      return await json<{
+        ok: boolean;
+        provider: string;
+        reason?: string;
+        message?: string;
+      }>(`/providers/${encodeURIComponent(provider)}/config`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (/^404\b/.test(msg)) {
+        return {
+          ok: false,
+          provider,
+          reason: 'endpoint_not_found',
+          message:
+            '后端未提供 /api/providers/{id}/config；请在 ai_agent/.env 中设置对应变量后重启。',
+        };
+      }
+      return { ok: false, provider, reason: 'network_error', message: msg };
+    }
+  },
+
   events: (limit = 100) =>
     json<ObsEvent[] | { events?: ObsEvent[]; count?: number }>(`/events?limit=${limit}`)
       .then((r) => (Array.isArray(r) ? r : (r.events ?? []))) as Promise<ObsEvent[]>,
@@ -128,6 +303,45 @@ export const api = {
       }),
     }),
   hitlStats: () => json<unknown>('/hitl/stats'),
+
+  // ----- v2.2.1 — HITL 审批（v2 协议）/ Checkpointer Time-Travel -----
+
+  /**
+   * v2.2.1 — 拉取某 session 的待审批清单（v2 协议）。
+   * 后端路由：GET /api/hitl/v2/pending?session_id=xxx
+   */
+  hitlV2Pending: (sessionId: string) =>
+    json<
+      | PendingApproval[]
+      | { pending: PendingApproval[]; count: number }
+    >(`/hitl/v2/pending?session_id=${encodeURIComponent(sessionId)}`).then(
+      (r) => (Array.isArray(r) ? r : (r.pending ?? [])),
+    ) as Promise<PendingApproval[]>,
+
+  /**
+   * v2.2.1 — 列出某 session 的 checkpoint 历史（Time-Travel 接口基底）。
+   * 后端路由：GET /api/checkpoints/list?session_id=xxx&limit=N
+   */
+  checkpointsList: (sessionId: string, limit = 50) =>
+    json<
+      | CheckpointSummary[]
+      | { checkpoints: CheckpointSummary[]; count: number }
+    >(
+      `/checkpoints/list?session_id=${encodeURIComponent(sessionId)}&limit=${limit}`,
+    ).then(
+      (r) => (Array.isArray(r) ? r : (r.checkpoints ?? [])),
+    ) as Promise<CheckpointSummary[]>,
+
+  /**
+   * v2.2.1 — 拉取单个 checkpoint 的完整 state 快照。
+   * 后端路由：GET /api/checkpoints/get?session_id=xxx&checkpoint_id=yyy
+   */
+  checkpointGet: (sessionId: string, checkpointId: string) =>
+    json<CheckpointState | null>(
+      `/checkpoints/get?session_id=${encodeURIComponent(
+        sessionId,
+      )}&checkpoint_id=${encodeURIComponent(checkpointId)}`,
+    ),
 
   // ----- Prompt 模板（System + User） -----
   promptsList: () => json<{ templates: PromptTemplateSummary[] }>('/prompts'),

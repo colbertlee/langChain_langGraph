@@ -8,7 +8,7 @@ on:
       - 'docker-compose.yml'
       - '.dockerignore'
       - 'ai_agent/requirements.txt'
-      - 'ai_agent/web_ui.py'
+      - 'ai_agent/app.py'
       - '.github/workflows/docker-ci.yml'
   pull_request:
     paths:
@@ -16,7 +16,7 @@ on:
       - 'docker-compose.yml'
       - '.dockerignore'
       - 'ai_agent/requirements.txt'
-      - 'ai_agent/web_ui.py'
+      - 'ai_agent/app.py'
       - '.github/workflows/docker-ci.yml'
   workflow_dispatch:
 

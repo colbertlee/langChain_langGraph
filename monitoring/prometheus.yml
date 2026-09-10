@@ -1,0 +1,93 @@
+# P2-5 — Prometheus 采集配置
+#
+# 设计要点：
+#   - scrape_interval 15s（与 Grafana 默认面板刷新对齐）
+#   - scrape_timeout 10s（防止慢 target 拖垮整个 scrape）
+#   - 采集 backend（FastAPI /metrics）与 frontend（nginx 自带 stub_status 不强制）
+#   - 自动 file_sd 发现 monitoring/targets/*.json（运维手动登记临时 target）
+#   - retention 30 天（生产默认 15 天，本项目用 30 天方便跨周分析）
+#
+# 部署：
+#   - 本地：docker compose up prometheus grafana
+#   - 访问：http://localhost:9090（Prometheus UI）
+#
+# 调优：
+#   - 高流量场景建议调 scrape_interval 到 30s 减少存储
+#   - 加 alerting_rules.yml 后用 rule_files: 加载
+
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: "ai-agent-console"
+    environment: "production"
+
+# ──────────────── 告警规则（可选，需要 alertmanager.yml） ────────────────
+# rule_files:
+#   - "alerting_rules.yml"
+
+# ──────────────── Alertmanager（可选） ────────────────
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets: ["alertmanager:9093"]
+
+# ──────────────── 采集 target 列表 ────────────────
+scrape_configs:
+  # ── 1. Prometheus 自身指标 ──
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+        labels:
+          service: "prometheus"
+
+  # ── 2. 后端 FastAPI（HTTP + SSE 指标）──
+  - job_name: "ai-agent-backend"
+    metrics_path: "/metrics"
+    scheme: "http"
+    static_configs:
+      # docker compose 内部网络服务名
+      - targets: ["backend:8000"]
+        labels:
+          service: "ai-agent-backend"
+          component: "fastapi"
+          tier: "core"
+    # 抓取超时单独设置（流式端点可能需要更长）
+    scrape_timeout: 30s
+    honor_labels: true
+
+  # ── 3. 前端 nginx（自带的 stub_status）──
+  - job_name: "nginx-exporter"
+    static_configs:
+      # nginx-prometheus-exporter 暴露的 9113 端口
+      - targets: ["nginx-exporter:9113"]
+        labels:
+          service: "nginx"
+          component: "edge"
+          tier: "edge"
+
+  # ── 4. Grafana 自身（监控自身健康）──
+  - job_name: "grafana"
+    static_configs:
+      - targets: ["grafana:3000"]
+        labels:
+          service: "grafana"
+
+  # ── 5. 节点 / 容器 exporter（可选）──
+  # - job_name: "node"
+  #   static_configs:
+  #     - targets: ["node-exporter:9100"]
+  #       labels: { host: "host-1" }
+  #
+  # - job_name: "cadvisor"
+  #   static_configs:
+  #     - targets: ["cadvisor:8080"]
+  #       labels: { component: "container-metrics" }
+
+  # ── 6. 文件 SD 发现（运维可往 targets/ 扔 json 注册临时 target）──
+  - job_name: "custom-targets"
+    file_sd_configs:
+      - files:
+          - "targets/*.json"
+        refresh_interval: 30s

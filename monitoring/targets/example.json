@@ -1,0 +1,10 @@
+[
+  {
+    "targets": ["example-target:9090"],
+    "labels": {
+      "service": "example",
+      "env": "staging",
+      "job": "custom-targets"
+    }
+  }
+]

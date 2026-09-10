@@ -64,7 +64,7 @@ npm run dev                 # http://localhost:5173 ,自动代理 /api -> :8000
 cd ../ai_agent
 pip install -r requirements.txt
 cp .env.example .env        # 填入至少一个 LLM_API_KEY
-python -m uvicorn ai_agent.web_ui:app --reload --port 8000
+python -m uvicorn ai_agent.app:app --reload --port 8000
 ```
 
 ### 2.3 仅前端(无后端)
@@ -82,7 +82,7 @@ npm run dev
 ```bash
 # 终端 A —— 后端
 cd ai_agent
-python -m uvicorn ai_agent.web_ui:app --port 8000 --reload
+python -m uvicorn ai_agent.app:app --port 8000 --reload
 # 看到 "Uvicorn running on http://0.0.0.0:8000" 后不要关
 
 # 终端 B —— 前端

@@ -1,27 +1,97 @@
-# 排除大文件和敏感信息
-**/node_modules
-**/dist
-**/__pycache__
-**/.pytest_cache
-**/htmlcov
-**/coverage.xml
-**/.venv
-**/.venv/**
-**/venv
-**/venv/**
-**/.git
-**/.git/**
-**/.claude
-**/.idea
-**/.vscode
+# 项目根 .dockerignore —— Docker build context 排除列表
+#
+# 作用：
+#  - 减少 docker build 上下文大小（节省上传时间）
+#  - 避免 .git / node_modules / __pycache__ 等被传入镜像
+#  - 提高镜像构建缓存命中率
+#
+# ⚠️ 注意：
+#  - 每个 Dockerfile 的 COPY 都按相对路径处理；这里写的是"相对 build context 根"
+#  - 不要排除 Dockerfile 自身需要的目录（package.json、pyproject.toml 等）
 
-# 不需要上传的运行时产物
-ai_agent/uploads/*
-!ai_agent/uploads/.gitkeep
-**/*.log
+# ──── 版本控制 ────
+.git
+.gitignore
+.gitattributes
 
-# 测试 / 文档（保留）
-tests/**
-docs/**
+# ──── CI / 部署配置 ────
+.github
+.gitlab-ci.yml
+.circleci
+.azure-pipelines.yml
+docker-compose*.yml
+Dockerfile*
+.dockerignore
+nginx.conf
+
+# ──── 文档（运行时不需要） ────
+README.md
+CHANGELOG.md
+docs
 *.md
 LICENSE
+LICENSE.*
+
+# ──── 编辑器 / OS 垃圾 ────
+.vscode
+.idea
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+*.log
+
+# ──── Python 缓存与虚拟环境 ────
+__pycache__
+**/__pycache__
+*.pyc
+*.pyo
+*.pyd
+.venv
+venv
+env
+*.egg-info
+.pytest_cache
+.mypy_cache
+.ruff_cache
+htmlcov
+.coverage
+coverage.xml
+.tox
+
+# ──── Node 依赖与缓存 ────
+**/node_modules
+**/.npm
+**/.yarn
+**/.pnpm-store
+**/dist
+**/.vite
+**/.next
+**/.cache
+
+# ──── 测试产物与覆盖 ────
+**/coverage
+**/.nyc_output
+**/playwright-report
+**/test-results
+**/.playwright
+
+# ──── 数据与运行时文件 ────
+**/*.db
+**/*.db-shm
+**/*.db-wal
+**/*.sqlite
+**/*.sqlite3
+**/uploads
+**/data
+**/knowledge_base
+**/logs
+**/*.log
+**/tmp
+
+# ──── Python / Node 构建产物 ────
+**/build
+**/dist
+**/*.egg-info
+**/.mypy_cache
+**/node_modules/.cache
