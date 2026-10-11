@@ -4,6 +4,34 @@
 
 ---
 
+## [v2.5.0] - 2026-09-10
+
+**类型**: Feature + Production Hardening · **SemVer**: MINOR（v2.0.11 → v2.5.0）
+**Tag**: `v2.5.0`（annotated，commit `792ab15`）
+**摘要**: Stellar Closure 企业级收口发布。P0/P1/P2 全量交付；后端 905 测试 100% 通过；覆盖率 38.76%（v2.4 基线 37.62%，+1.14pp）；生产可观测性 + HTTPS + CI/CD 上线。
+
+### Added
+- **P0 协议与单一事实源**：SSE 工具事件升级 `tool_start`/`tool_result`/`tool_end` 三事件族，`tool_call` 兼容事件新增 `name` 字段（P0-1/P0-2）；`tools_registry.py` 取代 `get_all_tools`（P0-3）；`rag_service.py::RAGService` 取代 `RAGModule`（P0-4）
+- **P1 UX 与韧性**：前端 CoT 推理折叠渲染（`ThinkingBlock`/`ReasoningMessagePart`，P1-1）；流式错误自动重试（SSE 重连 + 上下文续接，P1-2）；HITL 拒绝自动续接生成（`hitl_resume.py` + `reset_instance` 回退分支，P1-5）
+- **P2 生产化**：真实会话 E2E 测试（Playwright + mockSse，P2-1）；前端 Vitest 覆盖率门禁（P2-2）；后端 `--cov-fail-under=35` 门禁（P2-3）；TLS/HTTPS 全链路（Let's Encrypt + Certbot + HSTS + Mozilla cipher，`nginx-ssl.conf`/`scripts/init-letsencrypt.sh`，P2-4）；Prometheus + Grafana 监控栈（9 项 HTTP/SSE 指标 + 11 panels + 10 告警规则，`monitoring/`，P2-5）；完整 CI/CD（GitHub Actions `ci.yml`/`deploy.yml`/`harness-eval.yml` + Docker Hub，P2-6）
+- **新模块**：`observability/{prom_http_metrics,otel_exporter,hitl_span}.py`、`supervisor_agent.py`、`supervisor_state.py`、`hitl_langgraph.py`、`file_parser.py`、`vector_store.py`、`vision_multimodal_parser.py`、`agent_config.py`、`agent_tool_router.py`、`agent_workers.py`、`v21_tools/`（code_interpreter/python_sandbox/rag_tool/search_tool）、`ai_agent/Dockerfile`
+- **新文档**：`DEPLOY.md`、`docs/LOCAL_OLLAMA_WEB_QUICKSTART.md`、`ai_agent/docs/MULTI_AGENT_SUPERVISOR.md`
+
+### Changed
+- `agent.py`（+540 行）/ `app.py`（+1283 行）：工具路由、SSE 协议、Supervisor 多智能体接入
+- `docker-compose.yml` / `nginx.conf` / `web_console/Dockerfile`：重构为双容器 + 反代架构
+
+### Removed
+- 旧版 Flask Web UI：`ai_agent/web_ui.py` 及 `ai_agent/web/*.html` 共 9 个页面（约 -9000 行）
+- `web_console/Dockerfile.nginx`（并入 `Dockerfile`）
+- P2-7：legacy 测试清理（6 文件 / 15 用例修复后并入主测试套件）
+
+### Migration
+- v2.0.x → v2.5.0：drop-in 替换，无环境变量变更；仍直接调用 `ai_agent/web_ui.py` 的部署需迁移到 FastAPI `app.py` + web_console
+- 验证：`curl http://host:8000/api/health` + 一次 chat 往返
+
+---
+
 ## [v2.0.11-patch] - 2026-09-08
 
 **类型**: Hotfix · **SemVer**: PATCH（无 BREAKING）
