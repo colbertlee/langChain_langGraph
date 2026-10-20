@@ -3,8 +3,11 @@ name: CI
 # P2-2 / P2-3 — 前端 + 后端覆盖率门禁 + 测试
 #
 # 触发条件：
-#   - push / pull_request 到 main / develop
+#   - push / pull_request 到 master / main / develop
 #   - 手动触发（workflow_dispatch）
+#
+# 分支说明：本仓库实际主分支为 master（实测 origin/gitee 均只有 master），
+#           故 master 必须在监听列表内，否则 CI 永不触发。
 #
 # 步骤：
 #   1. backend-tests         pytest + coverage gate
@@ -23,9 +26,9 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [master, main, develop]
   pull_request:
-    branches: [main, develop]
+    branches: [master, main, develop]
   workflow_dispatch:
 
 permissions:

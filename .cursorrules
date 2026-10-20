@@ -1,0 +1,6 @@
+# 本文件仅供兼容 Cursor / 其他读取 .cursorrules 的工具
+# 权威规则在：.trae/rules/10-先扩写再执行.md（Trae 项目规则）
+# 以及：AGENT_RULES.md（行为）、CONVENTIONS.md（代码约定）
+任何非单行改动前：先出六段规格（Role / Tech Stack / Requirements / Edge Cases / Quality / Test），等用户确认后再写代码。
+需求已明确时直接执行，不硬走流程。
+不改任何已有文件的正文；如需指向，只允许在 AGENTS.md 末尾追加一行链接（可选，用户同意再做）。
