@@ -1,8 +1,8 @@
 ---
 project: langChain_langGraph
 doc: PROMPT-PACK
-version: 8
-generated_at: 2026-10-20T22:50:00+08:00
+version: 9
+generated_at: 2026-10-20T23:10:00+08:00
 source_sessions:
   - input/2026-10-13/session-01.md
   - input/2026-10-13/session-02.md
@@ -303,6 +303,8 @@ B4 — evals/runs 归档脚本。
 | 2026-10-20 | 决策（证据修正） | 回填 `python-multipart~=0.0.9` 到 `requirements.txt`：证据 `app.py:2719` / `app.py:2772` 使用 `File(...)`，FastAPI 在路由定义期即要求该包。**未回填 `mcp`**：`mcp_server.py` 为本地自实现（无 `import mcp`），全仓库检索无 PyPI `mcp` 引用，故确认为真未使用 | `Grep` 全仓库 + `Read rag.py` / `mcp_server.py` | `requirements.txt` |
 | 2026-10-20 | 决策 | `pandas~=2.1.0` / `akshare>=1.16.0` 从运行时依赖移入 `requirements-dev.txt`：证据 `tests/test_akshare_respx.py:132,141,148,163,172,187` 仅在测试用例内直接 import，生产代码无引用 | `Grep` + `Read tests/test_akshare_respx.py` | `requirements-dev.txt` |
 | 2026-10-20 | 修正（证据修正） | `tests/test_rag.py::test_init_default_embedding_type` 的真实根因是 `.env:12 EMBEDDING_MODEL_TYPE=bge`，而 `rag.get_embedding_model` 仅支持 `openai/minimax/zhipu/jina/ollama/local`（`rag.py:28-81`，未知值静默回落 OpenAI）。**未按原计划把 `bge` 加入白名单**（会掩盖真实配置错误）；改为 monkeypatch 隔离本地 `.env` + 白名单补上遗漏的 `local` | `Read rag.py:25-81` + `Grep .env` | `tests/test_rag.py` |
+| 2026-10-20 | 决策（v9） | `.env` 修正：`EMBEDDING_MODEL_TYPE=bge → ollama` + 新增 `OLLAMA_MODEL=bge-m3`。证据：两套配置系统并存——`RAG_EMBEDDING_BACKEND/RAG_OLLAMA_MODEL` 由 `vector_store.py:202-209` 消费（本就合法，未动）；`EMBEDDING_MODEL_TYPE` 由 `config.py:224 → rag.py:401` 消费，`bge` 非法。`rag.py:67` 读的是 `OLLAMA_MODEL` 键名，故显式补写。实测 `get_embedding_model('ollama')` 返回 `OllamaEmbeddings(model=bge-m3)`，不再回落 OpenAI。注：`.env` 在 gitignore 内，此改动仅本机生效；Ollama 服务当前未运行（3s 超时），运行 RAG 前需先启动 | `python -c "from rag import get_embedding_model; ..."` 实测 | `ai_agent/.env`（不入库） |
+| 2026-10-20 | 决策（v9） | `ai_agent/_ragmoduletest/` 12 个文件（m1-m8 分模块验证 + common/eval_set/repro）纳入版本库：`Grep` 敏感词零命中（仅 bge-m3 token 上限注释）；文件名不匹配 pytest 默认收集模式（`test_*.py`/`*_test.py`），不会进 CI | `Get-ChildItem` + `Grep` | `ai_agent/_ragmoduletest/` |
 
 # 4. 产出清单
 
@@ -383,9 +385,9 @@ B4 — evals/runs 归档脚本。
 - [ ] **待 Agent**（v6 新增）：PROMPT-PACK §2 当前仅 4 条 Turn（v5 baseline）；本轮 4 段对话（用户原话 + 4 次选择指令）按 §1.4 "只增不改" 规矩**未落盘**到 `input/2026-10-20/`。如需把本轮 4 段 prompt 加入档案 §2，需手工补 `input/2026-10-20/session-01.md` 并重跑 `scripts/build-prompt-pack.ps1`（注意 §1.4 第 7 条：不得用脚本以外手段改 §2 机器段）。
 - [x] **已完成**：PROMPT-PACK v6 — 「优化一下项目」一轮摸排 + B1 保守清理 + B2/B3/B4 全套执行（front matter `version: 6`；`generated_at: 2026-10-20T22:00:00+08:00`；§3 追加 7 行决策；§4 追加 v6 增量 14 行；§5 追加 4 项未决 + 本条已完成）。`output/2026-10-20/` 5 份报告 + `scripts/` 6 个新脚本 + `ai_agent/evals/runs/archive/` 16 个归档目录。本轮**未跑 `pytest` / `ruff` / `pip install`**，由用户/CI 复核。
 - [x] **已完成**：PROMPT-PACK v8 — 回填 `python-multipart`、`pandas`/`akshare` 下沉 dev、修正 `test_rag.py` 环境依赖（front matter `version: 8`）。证据面：`mcp` 确认为本地自实现故不回填；`bge` 为非法配置值故不改白名单。
-- [ ] **待用户**（v8 新增）：`ai_agent/.env:12` 的 `EMBEDDING_MODEL_TYPE=bge` **不是受支持值**（`rag.py:28-81` 仅支持 openai/minimax/zhipu/jina/ollama/local），当前会静默回落 OpenAI。建议改成 `ollama` 并配 `OLLAMA_MODEL=bge-m3`（注意 `rag.py:67` 读的是 `OLLAMA_MODEL`，而 `.env:17` 写的是 `RAG_OLLAMA_MODEL`，键名不一致）。
+- [x] **已完成**（v9）：`.env` 的 `EMBEDDING_MODEL_TYPE=bge` 已改为 `ollama` 并补 `OLLAMA_MODEL=bge-m3`，实测 `get_embedding_model` 走 Ollama 分支返回 `OllamaEmbeddings(bge-m3)`，不再回落 OpenAI。遗留：Ollama 服务需运行时再启动（本机 3s 超时未运行）；`rag.py:69` base_url 硬编码 `localhost:11434`，未读 `RAG_OLLAMA_BASE_URL`（与 `vector_store.py:209` 行为不一致，改动需另行确认）。
 - [ ] **待用户**（v8 新增）：`openai-whisper` 已按用户决定保持注释态；若后续需要本地 whisper，装包前需先解决 `pkg_resources` 缺失（`setuptools<81` 或改用官方 wheel）。
-- [ ] **待用户**（v8 新增）：工作区仍有 14 项未跟踪文件（`OPERATIONS.md` / `USER_MANUAL.md` / `ai_agent/_ragmoduletest/` / `ai_agent/data/` / `evals/rag_*.py` / `evals/runs/rag_*` / `scripts/release/install_gh.*`），需决定「提交 / 加 .gitignore / 保留不动」，本轮未擅自处理。
+- [x] **已完成**（v9）：14 项未跟踪文件全部处置完毕——13 项已提交（v8）、`ai_agent/data/` 已加 gitignore（v8）、`ai_agent/_ragmoduletest/` 12 文件已提交（v9，敏感词零命中，文件名不匹配 pytest 收集模式不进 CI）。
 
 # 6. 迁移到其它工具的用法
 
