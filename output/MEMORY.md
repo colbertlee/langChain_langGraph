@@ -320,3 +320,14 @@
   ```
   `undeclared=5` = 4 个 transitive（langchain_core / langgraph / pydantic / starlette）+ `whisper`（用户已注释掉，属预期）。
 - **未决**：`.env:12` 的 `EMBEDDING_MODEL_TYPE=bge` 需用户改为 `ollama`（配 `OLLAMA_MODEL=bge-m3`；注意 `.env:17` 写的是 `RAG_OLLAMA_MODEL`，与 `rag.py:67` 读取的 `OLLAMA_MODEL` 键名不一致）；14 项未跟踪文件待用户决定提交 / ignore / 保留。
+
+---
+
+## 会话 2026-10-20 / manual-2026-10-20-02（四）· v9 收尾剩余项
+
+- **用户指令**：`继续剩余的`（即 .env 修正 + _ragmoduletest 处置）。
+- **完成**：
+  1. `.env`（gitignore 内，仅本机）：`EMBEDDING_MODEL_TYPE=bge → ollama`，新增 `OLLAMA_MODEL=bge-m3`，注释更新为合法值清单。证据链：两套配置系统并存——`RAG_EMBEDDING_BACKEND/RAG_OLLAMA_MODEL` 由 `vector_store.py:202-209` 消费（本就合法，未动）；`EMBEDDING_MODEL_TYPE` 由 `config.py:224 → rag.py:401` 消费，`bge` 非法静默回落 OpenAI。实测 `get_embedding_model('ollama')` → `OllamaEmbeddings(model=bge-m3)`，打印 `[INFO] Using Ollama local model: bge-m3`。
+  2. `ai_agent/_ragmoduletest/` 12 文件提交入库：敏感词 Grep 零命中；文件名不匹配 pytest 收集模式，不进 CI。
+  3. PROMPT-PACK v9：§3 追加 2 行决策；§5 勾掉 2 项未决（.env / 14 项未跟踪）。
+- **遗留**：Ollama 服务本机未运行（`/api/tags` 3s 超时），跑 RAG 前需先启动；`rag.py:69` base_url 硬编码 `localhost:11434`，未读 `RAG_OLLAMA_BASE_URL`（与 `vector_store.py:209` 不一致，改代码需另行确认）；工作区剩 4 个用户本人改动（`user_prompts.json` / 2×tsbuildinfo / `vite.config.js`），未动。
