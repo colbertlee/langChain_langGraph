@@ -268,6 +268,20 @@ python -m pytest --no-header --tb=short -q \
 
 ⚠️ **CI 不跑 `ruff check` / `ruff format --check` / `mypy`**（实测 5 个 job：`backend-tests`、`frontend-tests`、`frontend-e2e`、`docker-build`、`actionlint`，均无 lint 步骤）。→ 风格靠本地 `ai-agent-lint` + review 保证，**不要以为 CI 会拦风格问题**。
 
+⚠️ **触发分支**：ci.yml 监听 `[master, main, develop]`。本仓库实际主分支为 `master`（实测 `git branch -a` 只有 master + origin/gitee/master），**改 workflow 时务必确认目标分支在监听列表内**，否则 CI 永不触发。
+
+### 5.1.1 仓库根的 workflow 一览（GitHub Actions 只识别这一层）
+
+| 文件 | 触发 | 用途 |
+|---|---|---|
+| `ci.yml` | push/PR → `master, main, develop` + 手动 | 5 job 主干校验（见 5.1） |
+| `harness-eval.yml` | 每周一 cron `0 2 * * 1` + 手动（可选 dry-run/full）+ `workflow_call` | harness 回归评测 + baseline 比对（退化 > 5% → fail）+ 自动开 issue |
+| `release.yml` | tag `v[0-9]+.[0-9]+.[0-9]+*` + 手动 | 发版 |
+| `deploy.yml` | tag `v*.*.*` + 手动 | 生产部署 |
+| `pr-merge-label.yml` | PR closed + merged | 打合并标签 |
+
+⚠️ **`ai_agent/.github/workflows/` 与 `web_console/.github/workflows/` 下的文件不会生效** —— GitHub Actions 只注册仓库根 `.github/workflows/`。其中 `ai_agent/.github/workflows/harness.yml` 与 `harness-eval.yml` 功能重叠、`release-build.yml` 与 `release.yml` 重叠，属遗留副本（详见 §7 N2）。新增 workflow **一律放仓库根**。
+
 ### 5.2 前端 CI（[web_console/.github/workflows/ci.yml](../web_console/.github/workflows/ci.yml)）
 
 去重后实际执行的命令：`npm ci --no-audit --no-fund`、`npm run lint:workflows`（actionlint）、`npm run check`（`tsc --noEmit`）、`npx tsc -p tsconfig.e2e.json`、`npm test`（vitest）、`npm run test:coverage`、`npm run e2e`（playwright）、`npm run build`（`tsc -b && vite build`）。
@@ -315,8 +329,8 @@ cd web_console && npm run check && npm test && npm run lint:workflows
 | # | 发现 | 证据 |
 |---|---|---|
 | N1 | `pyproject.toml` L128-L131 注释声明「pytest-timeout 默认 60 秒超时」，但 `[tool.pytest.ini_options]` 中**无 `timeout` 配置项**；且 `pytest-timeout` 只在 `requirements-dev.txt`，不在 `pyproject.toml` 的 `dev` extra | 实读 [pyproject.toml#L128-L188](file:///e:/langChain_langGraph/ai_agent/pyproject.toml#L128-L188) |
-| N2 | `ai_agent/.github/workflows/harness.yml` 位于**子目录**；GitHub Actions 只识别仓库根 `.github/workflows/` —— 该 workflow 是否生效**未找到证据**，需外部确认 | 文件存在于 `ai_agent/.github/workflows/` |
-| N3 | `web_console/src/test/setup.ts` 与 `web_console/src/test-setup.ts` 并存，前者未被 `vitest.config.ts` 引用 | [vitest.config.ts#L23](file:///e:/langChain_langGraph/web_console/vitest.config.ts#L23) |
+| N2 | ~~`ai_agent/.github/workflows/harness.yml` 位于子目录，是否生效未找到证据~~ → **已确认（2026-10-20 复核）：该文件不会生效，属遗留副本** | ① GitHub Actions 只识别**仓库根** `.github/workflows/`，子目录的 workflow 不注册；② 根目录已有 [`harness-eval.yml`](file:///e:/langChain_langGraph/.github/workflows/harness-eval.yml)（每周一 cron + `workflow_dispatch` + `workflow_call`，可被 `release.yml` 调用）承担同类职责；③ 子目录的 [`harness.yml`](file:///e:/langChain_langGraph/ai_agent/.github/workflows/harness.yml#L3-L17) 监听 `branches: [main]`，而本仓库主分支为 `master`，**即使被注册也不会触发**；④ 同目录另有 `release-build.yml`，而根目录已有 [`release.yml`](file:///e:/langChain_langGraph/.github/workflows/release.yml)。**处置建议**：确认无用后删除子目录 `.github/`（本轮未删，待用户裁决） |
+| N3 | `web_console/src/test/setup.ts` 与 `web_console/src/test-setup.ts` 并存，前者未被 `vitest.config.ts` 引用 | [vitest.config.ts#L23](file:///e:/langChain_langGraph/web_console/vitest.config.ts#L23) 指向 `src/test-setup.ts`；`src/test/setup.ts` 内容为 localStorage 清理 + matchMedia mock，与前者功能重叠 |
 
 ---
 
