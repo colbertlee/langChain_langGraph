@@ -34,14 +34,13 @@ for pkg in [
     'langchain', 'langchain_core', 'langchain_openai', 'langchain_community',
     'langchain_chroma', 'langchain_text_splitters',
     'langgraph', 'langgraph.checkpoint', 'langgraph.checkpoint.sqlite',
-    'mcp', 'mcp.server', 'mcp.client',
     'chromadb', 'chromadb.api',
     'uvicorn', 'uvicorn.loops', 'uvicorn.loops.auto',
     'uvicorn.protocols', 'uvicorn.protocols.http', 'uvicorn.protocols.websockets',
     'uvicorn.lifespan', 'uvicorn.lifespan.on',
-    'starlette', 'fastapi', 'sse_starlette',
-    'pandas', 'numpy', 'matplotlib',
-    'akshare', 'serpapi',
+    'starlette', 'fastapi',
+    'numpy', 'matplotlib',
+    'serpapi',
 ]:
     hidden += collect_submodules(pkg)
 

@@ -63,11 +63,14 @@ class TestInit:
             assert module.api_key == "sk-test"
             assert module.embedding_model_type is not None
 
-    def test_init_default_embedding_type(self, mock_model):
+    def test_init_default_embedding_type(self, mock_model, monkeypatch):
+        # 隔离开发者本地 .env 的 EMBEDDING_MODEL_TYPE，确保测的是代码默认值
+        monkeypatch.setattr("rag.EMBEDDING_MODEL_TYPE", "openai")
         with patch("rag.OpenAIEmbeddings"), patch("rag.RecursiveCharacterTextSplitter"):
             from rag import RAGModule
             module = RAGModule(mock_model, api_key="sk-test")
-            assert module.embedding_model_type in ("openai", "zhipu", "minimax", "jina", "ollama")
+            # 与 rag.get_embedding_model 支持的 model_type 保持一致
+            assert module.embedding_model_type in ("openai", "zhipu", "minimax", "jina", "ollama", "local")
 
     def test_init_creates_text_splitter(self, mock_model):
         with patch("rag.OpenAIEmbeddings"), patch("rag.RecursiveCharacterTextSplitter") as mock_split:

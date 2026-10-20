@@ -9,6 +9,12 @@ pytest-mock~=3.12.0
 pytest-timeout~=2.3.0     # 防止 CI hang
 respx~=0.21.0             # HTTP mock（mock akshare/serpapi 等）
 
+# ─────────────── 仅测试代码直接 import ───────────────
+# tests/test_akshare_respx.py 在用例内 `import pandas` / `import akshare`，
+# 生产运行时不使用这两个包，故只放 dev 依赖。
+pandas~=2.1.0
+akshare>=1.16.0
+
 # ─────────────── Lint / 类型 ───────────────
 ruff~=0.3.0
 mypy~=1.8.0

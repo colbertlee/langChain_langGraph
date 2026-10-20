@@ -1,13 +1,14 @@
 ---
 project: langChain_langGraph
 doc: PROMPT-PACK
-version: 5
-generated_at: 2026-10-19T21:00:00+08:00
+version: 8
+generated_at: 2026-10-20T22:50:00+08:00
 source_sessions:
   - input/2026-10-13/session-01.md
   - input/2026-10-13/session-02.md
   - input/2026-10-19/session-01.md
   - input/2026-10-19/session-02.md
+  - input/2026-10-20/session-01.md
 portable: true
 ---
 
@@ -168,6 +169,31 @@ portable: true
 <!-- BEGIN VERBATIM PROMPT -->
 按这个方案来实施
 <!-- END VERBATIM PROMPT -->
+## Turn 2026-10-20 source:input/2026-10-20/session-01.md
+<!-- BEGIN VERBATIM PROMPT -->
+优化一下项目
+<!-- END VERBATIM PROMPT -->
+## Turn 2026-10-20 source:input/2026-10-20/session-01.md
+<!-- BEGIN VERBATIM PROMPT -->
+A
+<!-- END VERBATIM PROMPT -->
+## Turn 2026-10-20 source:input/2026-10-20/session-01.md
+<!-- BEGIN VERBATIM PROMPT -->
+B1
+<!-- END VERBATIM PROMPT -->
+## Turn 2026-10-20 source:input/2026-10-20/session-01.md
+<!-- BEGIN VERBATIM PROMPT -->
+补-声明 — 把 C 段 10 个真未声明的（pillow / pytesseract / whisper / yaml / opentelemetry / prometheus-client 等）补到 requirements.txt。
+B2 — 加 scripts/dev.ps1 别名。
+B3 — 跑 build-prompt-pack.ps1 重建 PROMPT-PACK 第 4、5 章。
+B4 — evals/runs 归档脚本。
+<!-- END VERBATIM PROMPT -->
+## Turn 2026-10-20 source:input/2026-10-20/session-01.md
+<!-- BEGIN VERBATIM PROMPT -->
+跑-Apply — 执行 prune-evals.ps1 -Apply。
+补 PROMPT-PACK §4 §5 — 走手工通道更新。
+12345
+<!-- END VERBATIM PROMPT -->
 <!-- END PROMPT-COLLECTION -->
 
 
@@ -263,6 +289,20 @@ portable: true
 | 2026-10-19 | 修正 | `AGENT_RULES.md` 引用核对发现 4 处错误（B1 编造"反向条款"、B2 §3.1→§3.3、B3 §3.2→§3.3、B4 R3 来源 CONTRIBUTING §5→PROMPT-PACK §1.4 第 6 条）；§8 L136 把不同工具 include 混写修正为"按工具官方文档"并标注"未在本机 GUI 实测"；已落 v4 baseline | `output/MEMORY.md` 「会话 04 · 修正」 | `AGENT_RULES.md` |
 | 2026-10-19 | 修正 | `scripts/build-prompt-pack.ps1` 实测：PowerShell on Windows 默认按 ANSI 代码页解析 UTF-8 无 BOM 源文件，中文 `throw` 字符串未闭合导致解析阶段崩；脚本逻辑本身未跑通；3 个修复方案 A/B/C 留给用户拍板 | `output/MEMORY.md` 「会话 04 · 实测证据」 | `scripts/` |
 | 2026-10-19 | 修正 | `scripts/build-prompt-pack.ps1` 端到端跑通 + 幂等达成：方案 A（加 UTF-8 BOM）落地；删 `[CmdScript(...)]` 假属性；改 `ReadAllBytes + UTF8.GetString` 读源；循环内删 `AppendLine('')`；末行 `AppendLine($end)` 改 `Append($end)`（关键：原 section 2 末尾 end 标记后无 CRLF，多写就 +2 字节/轮）；第 134 行 begin 标记同步改为英文版以避免中文 GBK 污染；连跑 5 次 SHA256 完全一致 | `output/MEMORY.md` 「会话 06 · 实测证据」 | `scripts/` |
+| 2026-10-20 | 硬性约束 | 用户原话「优化一下项目」按 `.trae/rules/10-先扩写再执行.md` 触发，先出六段规格、不动手写代码；后用户选 Step A 摸排，再选 B1 保守清理，最后选 B1+B2+B3+B4 全套执行 | 本轮对话上下文 + `[scripts/dev.ps1](file:///e:/langChain_langGraph/scripts/dev.ps1)` | 全仓库 |
+| 2026-10-20 | 决策 | `output/2026-10-20/` 摸排产物（[audit-fs](file:///e:/langChain_langGraph/output/2026-10-20/audit-fs.md) / [audit-deps](file:///e:/langChain_langGraph/output/2026-10-20/audit-deps.md) / [audit-evals](file:///e:/langChain_langGraph/output/2026-10-20/audit-evals.md) / [audit-activity](file:///e:/langChain_langGraph/output/2026-10-20/audit-activity.md) / [audit-b1-diff](file:///e:/langChain_langGraph/output/2026-10-20/audit-b1-diff.md)）作为后续定向优化的依据 | 本轮对话上下文 + `output/2026-10-20/` | 决策依据 |
+| 2026-10-20 | 决策 | B1 保守清理：仅删 `ai_agent/requirements.txt` 中 `sse-starlette` 与 `langgraph-checkpoint-sqlite` 两行；同步从 [ai_agent/ai_agent.spec](file:///e:/langChain_langGraph/ai_agent/ai_agent.spec) hiddenimports 列表移除 `'sse_starlette'`；其它 6 项运行时候选（`akshare`/`mcp`/`python_multipart`/`sse_starlette`/`rank_bm25`/`tokenizers`/`pandas`/`langgraph_checkpoint_sqlite`）经二次 grep 验证后由用户拍板 | 本轮对话上下文 + `audit-b1-diff.md` | `requirements.txt`、`ai_agent.spec` |
+| 2026-10-20 | 变更 | 补声明：按 `audit-b1-diff.md` C 段 9 个真未声明（pillow / pytesseract / openai-whisper / faster-whisper / webrtcvad / PyYAML / opentelemetry-api / prometheus-client / duckduckgo-search）加到 `requirements.txt` 新分组「观测 / 可视化 / 音频 / OCR / 搜索」；用户后续手动把 `openai-whisper` 版本从 `20240930` 改为 `20240930.0`（PEP440 兼容） | 本轮对话上下文 + `audit-b1-diff.md` | `requirements.txt` |
+| 2026-10-20 | 变更 | 新增 [scripts/dev.ps1](file:///e:/langChain_langGraph/scripts/dev.ps1)：5 个子命令（audit / test-fast / lint-staged / build-pack / all）；不动既有 `build_*.ps1`；实测 `help` 与 `audit` 子命令通过 | 本轮对话上下文 | `scripts/` |
+| 2026-10-20 | 实测 | [scripts/build-prompt-pack.ps1](file:///e:/langChain_langGraph/scripts/build-prompt-pack.ps1) 试跑：实际覆盖范围 = §2（PROMPT-COLLECTION），**不覆盖 §4/§5**；本轮 §4/§5 走手工通道；试跑结果 `input actual turns = 4; pack section 2 turns = 4; match = True`；PROMPT-PACK.md 无写入 | 本轮对话上下文 | `scripts/build-prompt-pack.ps1`、本档案 §4/§5 |
+| 2026-10-20 | 决策 | 新增 [scripts/prune-evals.ps1](file:///e:/langChain_langGraph/scripts/prune-evals.ps1)：白名单正则（`harness_*` / `rag_*` / `*_real_smoke` / `*_smoke*` / `*_demo` / `*_obs_fix` / `*_ci`）+ `-Apply` 开关；`prune-evals.ps1 -Apply` 执行：44 → 28 keep + 16 archive（`20260726_*` 12 个、`20260903_*` 4 个 Move-Item 到 `evals/runs/archive/`），零失败 | 本轮对话上下文 | `evals/runs/` |
+| 2026-10-20 | 实测 | `pwsh -File scripts/dev.ps1 -Command test-fast` 端到端跑通：`pytest -m "not slow and not integration"` 共 904 passed / 1 failed；唯一失败 = [tests/test_rag.py::TestInit::test_init_default_embedding_type](file:///e:/langChain_langGraph/ai_agent/tests/test_rag.py#L70)（项目预存 bug：RAGModule 默认 embedding = `bge` 不在断言白名单 `("openai","zhipu","minimax","jina","ollama")` 中，与本轮清理无关） | 本轮实测 | `scripts/dev.ps1` |
+| 2026-10-20 | 决策 | 用户拍板「12345」（删-激进 + 跑-Apply + 补 §4 §5 + pytest + input 落盘）全做。删 6 行：`python-multipart~=0.0.9` / `rank-bm25~=0.2.2` / `tokenizers~=0.15.0` / `pandas~=2.1.0` / `akshare>=1.16.0` / `mcp~=1.9.0`；同步从 [ai_agent/ai_agent.spec](file:///e:/langChain_langGraph/ai_agent/ai_agent.spec) hiddenimports 列表移除 `'mcp','mcp.server','mcp.client'` / `'pandas'` / `'akshare'`；`audit-b1-once.py` 重跑 `unused=8 undeclared=4` | 本轮对话上下文 | `requirements.txt`、`ai_agent.spec` |
+| 2026-10-20 | 已知偏差 | 删-激进后 pytest 仍 904 通过，但**生产环境**用 `pip install -r ai_agent/requirements.txt` 时这 6 个包不会被装。pytest 通过 = 测试集用 respx mock 或 transitive 链路；真实生产 import 会 `ImportError`。已留待用户决定是否回填 | 本轮实测 | `requirements.txt` |
+| 2026-10-20 | 变更 | 落盘 [input/2026-10-20/session-01.md](file:///e:/langChain_langGraph/input/2026-10-20/session-01.md)（5 段用户原文逐字符）；同步追加 [input/INDEX.md](file:///e:/langChain_langGraph/input/INDEX.md) 索引行 + [input/.sessions.json](file:///e:/langChain_langGraph/input/.sessions.json) `manual-2026-10-20-02` 节点（turns=5）；重跑 `scripts/build-prompt-pack.ps1` → `input actual turns = 9; pack section 2 turns = 9; match = True`（v6 baseline 4 Turn + 本轮 5 Turn） | 本轮对话上下文 | `input/`、`docs/PROMPT-PACK.md` §2 |
+| 2026-10-20 | 决策（证据修正） | 回填 `python-multipart~=0.0.9` 到 `requirements.txt`：证据 `app.py:2719` / `app.py:2772` 使用 `File(...)`，FastAPI 在路由定义期即要求该包。**未回填 `mcp`**：`mcp_server.py` 为本地自实现（无 `import mcp`），全仓库检索无 PyPI `mcp` 引用，故确认为真未使用 | `Grep` 全仓库 + `Read rag.py` / `mcp_server.py` | `requirements.txt` |
+| 2026-10-20 | 决策 | `pandas~=2.1.0` / `akshare>=1.16.0` 从运行时依赖移入 `requirements-dev.txt`：证据 `tests/test_akshare_respx.py:132,141,148,163,172,187` 仅在测试用例内直接 import，生产代码无引用 | `Grep` + `Read tests/test_akshare_respx.py` | `requirements-dev.txt` |
+| 2026-10-20 | 修正（证据修正） | `tests/test_rag.py::test_init_default_embedding_type` 的真实根因是 `.env:12 EMBEDDING_MODEL_TYPE=bge`，而 `rag.get_embedding_model` 仅支持 `openai/minimax/zhipu/jina/ollama/local`（`rag.py:28-81`，未知值静默回落 OpenAI）。**未按原计划把 `bge` 加入白名单**（会掩盖真实配置错误）；改为 monkeypatch 隔离本地 `.env` + 白名单补上遗漏的 `local` | `Read rag.py:25-81` + `Grep .env` | `tests/test_rag.py` |
 
 # 4. 产出清单
 
@@ -290,6 +330,34 @@ portable: true
 | `CONTRIBUTING.md` | 贡献指南（§1 后追加 `AGENT_RULES.md` 引用） | 通过（存在） | `Read` 本轮对话上下文 |
 | `README.md` | 项目首页（文档地图 2 处新增 AI 助手入口） | 通过（存在） | `Read` 本轮对话上下文 |
 
+## v6 增量（2026-10-20 「优化一下项目」轮）
+
+| 文件路径 | 说明 | 验证状态 | 验证方式（真实命令） |
+| --- | --- | --- | --- |
+| `output/2026-10-20/audit-fs.md` | 文件系统摸排：扩展名 Top-25 + >365 天未动文件 Top-30 | 通过（存在 + 821 字节） | `python` + `git ls-files` + `Get-ChildItem` |
+| `output/2026-10-20/audit-deps.md` | Python/Node 依赖差集（Node 因 `node_modules` 未装标 N/A） | 通过（存在 + 3545 字节） | `python scripts/audit-deps-once.py` |
+| `output/2026-10-20/audit-evals.md` | evals/runs/ 失败占比 + 月度趋势 + 按前缀风险面 | 通过（存在 + 928 字节） | `python scripts/audit-evals-once.py` |
+| `output/2026-10-20/audit-activity.md` | 30/90/365 天提交量 + 近 90 天作者 Top-5 | 通过（存在 + 563 字节） | `pwsh scripts/audit-activity-once.ps1` |
+| `output/2026-10-20/audit-b1-diff.md` | B1 diff：声明 vs import 差集 + 证据路径；终态 `unused=14 undeclared=4` | 通过（存在 + 6203 字节；4 个 undeclared 均为 transitive） | `python scripts/audit-b1-once.py` |
+| `scripts/audit-deps-once.py` | 一次性 Python 摸排脚本 | 通过（端到端跑） | `python scripts/audit-deps-once.py` |
+| `scripts/audit-evals-once.py` | 一次性 evals 摸排脚本 | 通过（端到端跑） | `python scripts/audit-evals-once.py` |
+| `scripts/audit-b1-once.py` | 声明 vs import 差集脚本（含 alias 表 + stdlib 表） | 通过（端到端跑） | `python scripts/audit-b1-once.py` |
+| `scripts/audit-activity-once.ps1` | 提交活跃度摸排脚本 | 通过（端到端跑） | `pwsh -File scripts/audit-activity-once.ps1` |
+| `scripts/dev.ps1` | 开发期命令别名：audit / test-fast / lint-staged / build-pack / all | 通过（help + audit 实测通过） | `pwsh -File scripts/dev.ps1 -Command {help\|audit}` |
+| `scripts/prune-evals.ps1` | evals/runs 归档脚本（白名单正则 + `-Apply` 开关） | 通过（dry-run + -Apply 实跑：16 个目录 Move-Item） | `pwsh -File scripts/prune-evals.ps1` + `-Apply` |
+| `ai_agent/requirements.txt` | 删 `langgraph-checkpoint-sqlite`、`sse-starlette` 两行；新增分组「观测 / 可视化 / 音频 / OCR / 搜索」9 行（pillow / pytesseract / openai-whisper / faster-whisper / webrtcvad / PyYAML / opentelemetry-api / prometheus-client / duckduckgo-search）；用户手动把 `openai-whisper` 版本改为 `20240930.0`（PEP440） | 通过（声明 vs import 重跑收敛到 4 个 transitive） | `git diff` + `audit-b1-once.py` 终态 |
+| `ai_agent/ai_agent.spec` | hiddenimports 列表移除 `'sse_starlette'`（同行的 `'starlette'`、`'fastapi'` 保留） | 通过（存在；下次 PyInstaller 打包生效） | `git diff` |
+| `ai_agent/evals/runs/archive/` | 16 个目录归档（12 个 `20260726_*` + 4 个 `20260903_*`） | 通过（runs 顶层 29 = 28 keep + 1 archive；archive 下 16 个完整目录） | `Get-ChildItem` 计数 |
+
+## v8 增量（2026-10-20 回填与修正轮）
+
+| 文件路径 | 说明 | 验证状态 | 验证方式（真实命令） |
+| --- | --- | --- | --- |
+| `ai_agent/requirements.txt` | 回填 `python-multipart~=0.0.9`（`app.py` 的 `File(...)` 路由导入期强依赖）；`openai-whisper` 保持注释态（用户修改：`pkg_resources` 已废弃，改为优雅降级） | 通过（`audit-b1-once.py` → `unused=9 undeclared=5`，5 项为 transitive + 已注释的 `whisper`） | `python scripts/audit-b1-once.py` |
+| `ai_agent/requirements-dev.txt` | 新增「仅测试代码直接 import」分组：`pandas~=2.1.0`、`akshare>=1.16.0` | 通过（存在；仅影响 dev 安装） | `Read` |
+| `ai_agent/tests/test_rag.py` | `test_init_default_embedding_type` 加 `monkeypatch` 隔离本地 `.env`；白名单补 `local` | 通过（单测 `1 passed`） | `python -m pytest tests/test_rag.py -k test_init_default_embedding_type` |
+| `output/2026-10-20/audit-b1-diff.md` | 重生成（5261 字节，`unused=9 undeclared=5`） | 通过（存在） | `python scripts/audit-b1-once.py` |
+
 未验证项：
 
 - 自动留痕 Hook（提示词捕获 / 输出捕获 / 会话启动注入 三个事件）在目标工具的图形界面中真实触发情况。
@@ -309,6 +377,15 @@ portable: true
 - [x] **已完成**：PROMPT-PACK v3 + 新建 `AGENT_RULES.md`（front matter `version: 3`；新增 `AGENT_RULES.md` 引用 4 处：AGENTS / CONTRIBUTING / PROMPT-PACK §1.4 第 7 条 / README 文档地图；第 2 章沿用手工编辑落地，标注「未验证 · 脚本未跑」）。来源：`output/MEMORY.md` 会话 04。
 - [x] **已完成**：PROMPT-PACK v4 — `AGENT_RULES.md` 引用核对修正（front matter `version: 4`；B1/B2/B3/B4 共 4 处引用错误已修；§8 L136 推测标注；SHA256 baseline 由 `output/MEMORY.md` 留档）。`scripts/build-prompt-pack.ps1` 实测定位 PowerShell 编码 bug，留待 A/B/C 方案拍板。来源：`output/MEMORY.md` 会话 04。
 - [x] **已完成**：PROMPT-PACK v5 — `scripts/build-prompt-pack.ps1` 端到端跑通 + 幂等达成（front matter `version: 5`；方案 A BOM + 末行改 `Append` 落地；RUN1..RUN4 SHA256 = `C43D3372...CE2621` 完全一致；Turn 数 = 4）。`AGENT_RULES.md` 留待 v4 不变。来源：`output/MEMORY.md` 会话 06。
+- [ ] **待用户确认**（v6 新增）：B1 摸排中 6 项运行时候选可清理（`akshare` / `mcp` / `python_multipart` / `rank_bm25` / `tokenizers` / `pandas`）尚未裁决——本轮仅删了 2 项最低风险的（`langgraph_checkpoint_sqlite` / `sse-starlette`），其它 6 项属间接依赖 / 待确认，待你下一步选 `删-激进` / `N-留` / `改方向`。
+- [ ] **待 Agent**（v6 新增）：9 项补声明（pillow / pytesseract / openai-whisper / faster-whisper / webrtcvad / PyYAML / opentelemetry-api / prometheus-client / duckduckgo-search）尚未在本机执行 `pip install -r ai_agent/requirements.txt` 验证；CI 跑过一次才会暴露任何冲突（最可能是 `openai-whisper` 包体积 ~1.5 GB 引发的下载超时）。
+- [ ] **待用户**（v6 新增）：本轮新增的 `scripts/dev.ps1` 已通过 `help` + `audit` 实测，但 `test-fast` 与 `lint-staged` 子命令未在本机跑过（依赖 `pytest` / `ruff` 在虚拟环境里可用）；下次激活 venv 后跑一次 `pwsh -File scripts/dev.ps1 -Command test-fast` 确认无报错。
+- [ ] **待 Agent**（v6 新增）：PROMPT-PACK §2 当前仅 4 条 Turn（v5 baseline）；本轮 4 段对话（用户原话 + 4 次选择指令）按 §1.4 "只增不改" 规矩**未落盘**到 `input/2026-10-20/`。如需把本轮 4 段 prompt 加入档案 §2，需手工补 `input/2026-10-20/session-01.md` 并重跑 `scripts/build-prompt-pack.ps1`（注意 §1.4 第 7 条：不得用脚本以外手段改 §2 机器段）。
+- [x] **已完成**：PROMPT-PACK v6 — 「优化一下项目」一轮摸排 + B1 保守清理 + B2/B3/B4 全套执行（front matter `version: 6`；`generated_at: 2026-10-20T22:00:00+08:00`；§3 追加 7 行决策；§4 追加 v6 增量 14 行；§5 追加 4 项未决 + 本条已完成）。`output/2026-10-20/` 5 份报告 + `scripts/` 6 个新脚本 + `ai_agent/evals/runs/archive/` 16 个归档目录。本轮**未跑 `pytest` / `ruff` / `pip install`**，由用户/CI 复核。
+- [x] **已完成**：PROMPT-PACK v8 — 回填 `python-multipart`、`pandas`/`akshare` 下沉 dev、修正 `test_rag.py` 环境依赖（front matter `version: 8`）。证据面：`mcp` 确认为本地自实现故不回填；`bge` 为非法配置值故不改白名单。
+- [ ] **待用户**（v8 新增）：`ai_agent/.env:12` 的 `EMBEDDING_MODEL_TYPE=bge` **不是受支持值**（`rag.py:28-81` 仅支持 openai/minimax/zhipu/jina/ollama/local），当前会静默回落 OpenAI。建议改成 `ollama` 并配 `OLLAMA_MODEL=bge-m3`（注意 `rag.py:67` 读的是 `OLLAMA_MODEL`，而 `.env:17` 写的是 `RAG_OLLAMA_MODEL`，键名不一致）。
+- [ ] **待用户**（v8 新增）：`openai-whisper` 已按用户决定保持注释态；若后续需要本地 whisper，装包前需先解决 `pkg_resources` 缺失（`setuptools<81` 或改用官方 wheel）。
+- [ ] **待用户**（v8 新增）：工作区仍有 14 项未跟踪文件（`OPERATIONS.md` / `USER_MANUAL.md` / `ai_agent/_ragmoduletest/` / `ai_agent/data/` / `evals/rag_*.py` / `evals/runs/rag_*` / `scripts/release/install_gh.*`），需决定「提交 / 加 .gitignore / 保留不动」，本轮未擅自处理。
 
 # 6. 迁移到其它工具的用法
 
@@ -317,7 +394,7 @@ portable: true
 - 目标工具需要"先说明项目再动手"：粘贴第 1 章。
 - 已知适配差异（如实列出）：
   - 本档案不含自动留痕机制，新工具若需要需另行配置。
-  - 档案第 2 章当前仅含 1 条 Turn（手工补录），未覆盖更多历史会话。
+  - 档案第 2 章当前含 4 条 Turn（手工补录 + v5 baseline），未覆盖更多历史会话；v6 摸排轮 4 段对话**未落盘**到 `input/2026-10-20/`（见 §5 未决项）。
   - v2.5.0 的"v2.0 slim 强制启用"由 README 声明（`config.LEGACY_MODE` 恒为 `False`），新工具接手时务必沿用。
 
 # 附录 A. 原始留痕索引（仅 Trae 相关，其它工具可忽略）
