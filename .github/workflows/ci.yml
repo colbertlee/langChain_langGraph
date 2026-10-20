@@ -62,8 +62,12 @@ jobs:
 
       - name: Install Python deps
         working-directory: ai_agent
+        # 必须先装 requirements.txt：pyproject.toml 没有 [project] dependencies 表，
+        # `pip install -e .[dev]` 只会装 pytest 等dev 工具，不含 fastapi/httpx 等运行时依赖。
+        # （实测 pyproject.toml 仅有 optional-dependencies.dev，无 dependencies）
         run: |
           python -m pip install --upgrade pip
+          pip install -r requirements.txt
           pip install -e ".[dev]"
 
       - name: Run pytest with coverage gate
@@ -178,10 +182,10 @@ jobs:
 
       - name: Run Playwright tests
         working-directory: web_console
-        # E2E_NO_WEBSERVER=1 跳过 playwright.config 自动启动 dev server；
-        # 当前 spec 全部用 mock 后端（mockSse.ts），不需要真实 dev server
+        # 不设 E2E_NO_WEBSERVER：让 playwright.config 的 webServer 启动真实 dev server。
+        # 原注释说「spec 全部 mock 后端故不需要 dev server」有误——mock 的是 API（SSE），
+        # 但 spec 里的 page.goto() 仍需页面服务，实际报 ERR_CONNECTION_REFUSED:5173。
         env:
-          E2E_NO_WEBSERVER: "1"
           # 让 Playwright 始终产出 trace / video / screenshot（默认仅失败时保留）
           PLAYWRIGHT_TRACE: "retain-on-failure"
         run: npx playwright test
@@ -302,11 +306,11 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Download actionlint
-        id: get_actionlint
-        run: |
-          mkdir -p ./actionlint
-          curl -sSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash | bash -s -- ./actionlint
-        shell: bash
+      # 用官方 action 取代 `curl | bash` 手动下载：
+      # 旧写法只传了 1 个参数（./actionlint），被脚本当作 version 而非目标目录，
+      # 打印 usage 后 exit 1。改为官方 action 后由其负责版本与路径。
       - name: Check workflow files
-        run: ./actionlint/actionlint -color
+        uses: reviewdog/action-actionlint@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          reporter: github-pr-check
