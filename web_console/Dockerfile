@@ -33,7 +33,10 @@ ENV VITE_API_BASE_URL=/api \
 COPY web_console/package.json web_console/package-lock.json* ./
 # --legacy-peer-deps：@assistant-ui/react-markdown@0.14.18+ 的 peer 要求 react@^0.15.0，
 # 与项目锁定的 ^0.14.x 冲突（上游 0.14.x 线无兼容版本）。详见 CONVENTIONS.md §7 N4。
-RUN npm ci --legacy-peer-deps --no-audit --no-fund --prefer-offline
+# --include=dev：上一步设了 NODE_ENV=production，npm ci 会默认跳过 devDependencies，
+# 导致 typescript 不被安装，构建首步 `tsc -b` 报 `sh: tsc: not found`（exit 127）。
+# devDeps 只在 builder阶段使用，不进最终镜像，无安全风险。
+RUN npm ci --legacy-peer-deps --include=dev --no-audit --no-fund --prefer-offline
 
 # 2) 复制源码并构建
 COPY web_console/ ./

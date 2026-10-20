@@ -47,10 +47,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: "pip"
@@ -83,7 +83,7 @@ jobs:
 
       - name: Upload coverage to Codecov
         if: success() || failure()
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           files: ai_agent/coverage.xml
           flags: backend
@@ -93,7 +93,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: backend-test-results
           path: |
@@ -110,10 +110,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
@@ -135,7 +135,7 @@ jobs:
 
       - name: Upload coverage to Codecov
         if: success() || failure()
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           files: web_console/coverage/lcov.info
           flags: frontend
@@ -145,7 +145,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: frontend-test-results
           path: |
@@ -161,10 +161,10 @@ jobs:
     timeout-minutes: 20
     needs: [frontend-tests]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
@@ -196,7 +196,7 @@ jobs:
       #  2) 偶发失败的测试有完整 evidence 便于调试
       - name: Upload Playwright HTML report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: playwright-html-report
           path: web_console/playwright-report/
@@ -205,7 +205,7 @@ jobs:
 
       - name: Upload Playwright trace(s)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           # trace.zip 在 playwright.config 里配置保留 → 上传后可下载用
           # https://trace.playwright.dev 打开
@@ -216,7 +216,7 @@ jobs:
 
       - name: Upload Playwright videos
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: playwright-videos
           path: web_console/test-results/**/video.webm
@@ -225,7 +225,7 @@ jobs:
 
       - name: Upload screenshots on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: playwright-screenshots-failure
           path: web_console/test-results/**/*.{png,jpg}
@@ -235,11 +235,13 @@ jobs:
       - name: Print Playwright failure summary
         if: failure()
         run: |
-          echo "## Playwright E2E Failures" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "失败 trace / video / screenshot 已上传为 artifacts。" >> $GITHUB_STEP_SUMMARY
-          echo "下载 \`playwright-html-report\` 后用 \`npx playwright show-report\` 在本地查看。" >> $GITHUB_STEP_SUMMARY
-          echo "或下载 \`playwright-traces/*/trace.zip\` 用 https://trace.playwright.dev 复现。" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## Playwright E2E Failures"
+            echo ""
+            echo "失败 trace / video / screenshot 已上传为 artifacts。"
+            echo "下载 \`playwright-html-report\` 后用 \`npx playwright show-report\` 在本地查看。"
+            echo "或下载 \`playwright-traces/*/trace.zip\` 用 https://trace.playwright.dev 复现。"
+          } >> $GITHUB_STEP_SUMMARY
 
   # ════════════════════════════════════════════════════════════════
   # 4. Docker 构建验证（确保 Dockerfile 可用）
@@ -253,14 +255,14 @@ jobs:
       matrix:
         target: [backend, frontend]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Build backend image
         if: matrix.target == 'backend'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ai_agent/Dockerfile
@@ -274,7 +276,7 @@ jobs:
 
       - name: Build frontend image
         if: matrix.target == 'frontend'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: web_console/Dockerfile
@@ -305,7 +307,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       # 用官方 action 取代 `curl | bash` 手动下载：
       # 旧写法只传了 1 个参数（./actionlint），被脚本当作 version 而非目标目录，
       # 打印 usage 后 exit 1。改为官方 action 后由其负责版本与路径。
