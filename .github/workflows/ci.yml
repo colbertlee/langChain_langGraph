@@ -36,7 +36,7 @@ permissions:
 
 env:
   PYTHON_VERSION: "3.11"
-  NODE_VERSION: "20"
+  NODE_VERSION: "22"
 
 jobs:
   # ════════════════════════════════════════════════════════════════
@@ -117,7 +117,12 @@ jobs:
 
       - name: Install deps
         working-directory: web_console
-        run: npm ci --no-audit --no-fund
+        # --legacy-peer-deps：@assistant-ui/react-markdown@0.14.18+ 的 peer 要求
+        # @assistant-ui/react@^0.15.0，而项目锁定 ^0.14.x。上游 0.14.x 线已无兼容版本
+        # （分界点为 0.14.17），属上游版本断层，非本项目代码问题。
+        # 关联代码：src/lib/chatHistoryAdapter.ts 使用 @assistant-ui/core/internal 私有API，
+        # 跨大版本改动风险高，故暂不升 @assistant-ui/react。详见 CONVENTIONS.md §7 N4。
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
 
       - name: Run vitest with coverage gate
         working-directory: web_console
@@ -163,7 +168,8 @@ jobs:
 
       - name: Install deps
         working-directory: web_console
-        run: npm ci --no-audit --no-fund
+        # --legacy-peer-deps：同frontend-tests job，详见该处注释
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
 
       - name: Install Playwright browsers
         working-directory: web_console
