@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "note": "session_id -> { date, seq, file_path, captured_by } 的映射。本文件由留痕 Agent 手工/脚本维护。",
+  "sessions": {
+    "manual-2026-10-13-01": {
+      "date": "2026-10-13",
+      "seq": 1,
+      "file_path": "input/2026-10-13/session-01.md",
+      "captured_by": "manual",
+      "turns": 1,
+      "created_at": "2026-10-13T10:00:00+08:00",
+      "updated_at": "2026-10-13T10:00:00+08:00"
+    },
+    "manual-2026-10-13-02": {
+      "date": "2026-10-13",
+      "seq": 2,
+      "file_path": "input/2026-10-13/session-02.md",
+      "captured_by": "manual",
+      "turns": 1,
+      "created_at": "2026-10-13T11:00:00+08:00",
+      "updated_at": "2026-10-13T11:00:00+08:00"
+    },
+    "manual-2026-10-19-01": {
+      "date": "2026-10-19",
+      "seq": 1,
+      "file_path": "input/2026-10-19/session-01.md",
+      "captured_by": "manual",
+      "turns": 1,
+      "created_at": "2026-10-19T20:45:00+08:00",
+      "updated_at": "2026-10-19T20:45:00+08:00"
+    },
+    "manual-2026-10-19-02": {
+      "date": "2026-10-19",
+      "seq": 2,
+      "file_path": "input/2026-10-19/session-02.md",
+      "captured_by": "manual",
+      "turns": 1,
+      "created_at": "2026-10-19T20:45:00+08:00",
+      "updated_at": "2026-10-19T20:45:00+08:00"
+    }
+  }
+}
