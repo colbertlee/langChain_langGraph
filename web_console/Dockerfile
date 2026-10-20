@@ -1,7 +1,7 @@
 # web_console/Dockerfile — 前端 React/Vite 构建 + Nginx 镜像（前后端彻底解耦）
 #
 # Multi-Stage 构建：
-#   Stage 1 (builder) : node:20-alpine  → npm ci + npm run build，产出 dist/
+#   Stage 1 (builder) : node:22-alpine  → npm ci + npm run build，产出 dist/
 #   Stage 2 (runtime) : nginx:1.27-alpine → 仅放入 dist/ + 根目录 nginx.conf
 #
 # 关键点：
@@ -16,7 +16,7 @@
 #     这是 nginx 官方镜像的标准安全模型。
 
 # ──────────────── build args ────────────────
-ARG NODE_VERSION=20-alpine
+ARG NODE_VERSION=22-alpine
 ARG NGINX_VERSION=1.27-alpine
 
 # ──────────────── Stage 1: 前端构建 ────────────────
@@ -31,7 +31,12 @@ ENV VITE_API_BASE_URL=/api \
 
 # 1) 先装依赖（利用 Docker layer cache）
 COPY web_console/package.json web_console/package-lock.json* ./
-RUN npm ci --no-audit --no-fund --prefer-offline
+# --legacy-peer-deps：@assistant-ui/react-markdown@0.14.18+ 的 peer 要求 react@^0.15.0，
+# 与项目锁定的 ^0.14.x 冲突（上游 0.14.x 线无兼容版本）。详见 CONVENTIONS.md §7 N4。
+# --include=dev：上一步设了 NODE_ENV=production，npm ci 会默认跳过 devDependencies，
+# 导致 typescript 不被安装，构建首步 `tsc -b` 报 `sh: tsc: not found`（exit 127）。
+# devDeps 只在 builder阶段使用，不进最终镜像，无安全风险。
+RUN npm ci --legacy-peer-deps --include=dev --no-audit --no-fund --prefer-offline
 
 # 2) 复制源码并构建
 COPY web_console/ ./

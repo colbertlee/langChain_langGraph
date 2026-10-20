@@ -22,7 +22,9 @@
 docker-compose*.yml
 Dockerfile*
 .dockerignore
-nginx.conf
+# 注意：nginx.conf 不能排除——web_console/Dockerfile 的runtime 阶段需要
+# COPY nginx.conf /etc/nginx/nginx.conf。排除它会导致构建报
+# "CopyIgnoredFile: Attempting to Copy file nginx.conf that is excluded by .dockerignore"。
 
 # ──── 文档（运行时不需要） ────
 README.md

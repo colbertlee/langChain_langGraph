@@ -3,9 +3,10 @@
 # 实际部署时用 `pip freeze > requirements.lock` 锁定完全版本。
 
 # ─────────────── Web framework ───────────────
-fastapi~=0.110.0
+fastapi~=0.116.0
 uvicorn[standard]~=0.27.0
-python-multipart~=0.0.9       # /api/upload 需要
+sse-starlette~=2.4.1
+python-multipart~=0.0.9       # app.py 的 UploadFile/File(...) 路由在导入期强依赖
 
 # ─────────────── LangChain / LangGraph ───────────────
 langchain~=0.2.0
@@ -13,26 +14,37 @@ langchain-openai~=0.1.0
 langchain-chroma~=0.1.0
 langchain-text-splitters~=0.2.0
 langchain-community~=0.2.0
-langgraph-checkpoint-sqlite~=2.0.0
 chromadb~=0.4.0
 sentence-transformers~=2.7.0   # Rerank (bge-reranker-base) 依赖
-rank-bm25~=0.2.2               # BM25 关键词检索
-tokenizers~=0.15.0             # Cross-Encoder tokenizer
 
 # ─────────────── 数据科学 / 工具 ───────────────
 numpy~=1.26.0
-pandas~=2.1.0
 matplotlib~=3.7.0
 requests~=2.31.0
 httpx~=0.27.0
-sse-starlette~=2.0.0
 
 # ─────────────── 第三方集成 ───────────────
 serpapi~=0.1.0
-akshare>=1.16.0
 python-dotenv~=1.0.0
 
 # ─────────────── MCP (Model Context Protocol) ───────────────
-mcp~=1.0.0
 psutil~=5.9.0
 jmespath~=1.0.0
+
+# ─────────────── 观测 / 可视化 / 音频 / OCR / 搜索 ───────────────
+# 2026-10-20 audit-b1：以下 import 在代码里出现但 requirements.txt 未声明。
+# 按 import 名 → pip 包的常见映射补齐；版本号取与本机环境兼容的稳定线。
+pillow~=10.4.0                  # PIL
+pytesseract~=0.3.10             # OCR；需本机有 tesseract 可执行
+# 注：openai-whisper 已被移除。其 setup.py 引用已废弃的 pkg_resources，
+# PyPI 无 wheel，Python 3.11+ 下 sdist 构建必然失败
+# （实测 CI 报 ModuleNotFoundError: No module named 'pkg_resources'）。
+# audio_pipeline.py 的 _init_model 是 try faster_whisper -> except -> try whisper
+# -> except 的双层降级链（见 audio_pipeline.py L462-L476），移除后最差情况是
+# _model = None 优雅降级，不会崩溃。如需 openai-whisper 请手动 pip install。
+faster-whisper~=1.0.3           # audio_pipeline.py: `import faster_whisper`
+webrtcvad~=2.0.10               # audio_pipeline.py VAD
+PyYAML~=6.0.2                   # plugin_manager.py: `import yaml`
+opentelemetry-api~=1.27.0       # observability/
+prometheus-client~=0.21.0       # observability/prom_http_metrics.py
+duckduckgo-search~=6.1.7        # v21_tools/search_tool.py
