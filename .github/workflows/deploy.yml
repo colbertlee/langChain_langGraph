@@ -52,6 +52,9 @@ jobs:
     name: Build & Push ${{ matrix.target }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # smoke-test job 通过 needs.build.outputs.sha 引用镜像 tag，必须显式声明
+    outputs:
+      sha: ${{ steps.version.outputs.sha }}
     strategy:
       fail-fast: false
       matrix:
@@ -142,21 +145,22 @@ jobs:
     needs: [build]
     if: github.event_name != 'pull_request'
     services:
+      # 注意：services.<id>.image 可用上下文不含 env，只允许 github/needs/strategy/matrix/vars/inputs，
+      # 故此处用 github 上下文取 registry，env.REGISTRY 仅在其他 step 中使用。
       backend:
-        image: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/ai-agent-backend:${{ needs.build.outputs.sha }}
+        image: ${{ github.event.inputs.registry || 'ghcr.io' }}/${{ github.repository_owner }}/ai-agent-backend:${{ needs.build.outputs.sha }}
         env:
           OPENAI_API_KEY: sk-smoke-test
           AI_AGENT_DISABLE_PLACEHOLDER_CHECK: "1"
+        ports:
+          - 8000:8000
         options: >-
           --health-cmd "curl -fsS http://127.0.0.1:8000/api/health"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 3
       frontend:
-        image: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/ai-agent-frontend:${{ needs.build.outputs.sha }}
-        depends-on:
-          backend:
-            condition: service_healthy
+        image: ${{ github.event.inputs.registry || 'ghcr.io' }}/${{ github.repository_owner }}/ai-agent-frontend:${{ needs.build.outputs.sha }}
         ports:
           - 80:80
     steps:
