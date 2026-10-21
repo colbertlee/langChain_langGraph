@@ -17,9 +17,22 @@ import {
 import { useChatStore } from '@/stores/chatStore';
 import { attachmentAdapter } from '@/lib/attachmentAdapter';
 import { chatHistoryAdapter } from '@/lib/chatHistoryAdapter';
+import { runAgentStream } from '@/lib/runAgentStream';
+import type { SseEvent } from '@/lib/sseParser';
 import { uid } from '@/lib/utils';
 
 type AgentTextPart = { type: 'text'; text: string };
+type AgentReasoningPart = { type: 'reasoning'; text: string };
+type AgentToolCallPart = {
+  type: 'tool-call';
+  toolCallId: string;
+  toolName: string;
+  args: Record<string, unknown>;
+  argsText: string;
+  result?: string;
+};
+/** 本轮消息的 part 累积容器：assistant-ui 每次 yield 都要全量快照。 */
+type AgentPart = AgentTextPart | AgentReasoningPart | AgentToolCallPart;
 
 function extractText(content: unknown): string {
   if (!Array.isArray(content)) return '';
@@ -48,7 +61,68 @@ type StreamEvent = {
   /** P0-1：工具终止状态（tool_end 携带："success" | "error" | "aborted"） */
   status?: string;
   error?: string;
+  /** P1-2：自动重试元事件字段（__retry_attempt / __retry_failed） */
+  attempt?: number;
+  attempts?: number;
+  delayMs?: number;
+  reason?: string;
+  finalError?: string;
+  /** v2.2.1：HITL 审批事件字段 */
+  request_id?: string;
+  tool_args?: Record<string, unknown>;
+  /** v2.2.3：Multi-Agent 事件字段 */
+  agent?: string;
 };
+
+/** 文本增量事件别名：chunk / token 统一按 text 分支处理。 */
+const TEXT_EVENT_TYPES = new Set(['chunk', 'token', 'text']);
+
+/**
+ * SseEvent（lib/sseParser）→ StreamEvent（本文件协议形态）适配。
+ * 只做字段搬运，不改变下方 switch 分支语义：
+ *  - 类型以 payload.type 为准，缺失时退回 SSE `event:` 头；
+ *  - chunk / token 归一为 text；
+ *  - payload.data 优先；SSE data 为非 JSON 纯文本时直接作为内容；
+ *  - 其余字段从 payload 展开（含 HITL / Multi-Agent / retry 元事件）。
+ */
+function toStreamEvent(sse: SseEvent): StreamEvent {
+  const obj = (
+    sse.dataObj && typeof sse.dataObj === 'object' ? sse.dataObj : {}
+  ) as Record<string, unknown>;
+  const rawType = typeof obj.type === 'string' ? obj.type : sse.event;
+  const data =
+    typeof obj.data === 'string'
+      ? obj.data
+      : sse.dataObj === null && sse.data !== '[DONE]'
+        ? sse.data
+        : undefined;
+  const rawArgs = obj.args ?? obj.tool_args;
+  return {
+    type: TEXT_EVENT_TYPES.has(rawType) ? 'text' : rawType,
+    data,
+    content: typeof obj.content === 'string' ? obj.content : undefined,
+    name:
+      (obj.name as string | undefined) ?? (obj.tool_name as string | undefined),
+    args:
+      rawArgs && typeof rawArgs === 'object'
+        ? (rawArgs as Record<string, unknown>)
+        : undefined,
+    tool_call_id: obj.tool_call_id as string | undefined,
+    result: obj.result as string | undefined,
+    duration_ms: obj.duration_ms as number | undefined,
+    status: obj.status as string | undefined,
+    error: obj.error as string | undefined,
+    attempt: obj.attempt as number | undefined,
+    attempts: obj.attempts as number | undefined,
+    delayMs: obj.delayMs as number | undefined,
+    reason: obj.reason as string | undefined,
+    finalError: obj.finalError as string | undefined,
+    request_id: obj.request_id as string | undefined,
+    tool_args: obj.tool_args as Record<string, unknown> | undefined,
+    agent: obj.agent as string | undefined,
+  };
+}
+
 
 /**
  * P1-1：thinking 增量缓冲。
@@ -57,54 +131,6 @@ type StreamEvent = {
  * 流结束时用 EMPTY 字符串 + 同一个 partId 重发一次，确保 final 完整快照。
  */
 const thinkingBuffer = { text: '', partId: '' };
-
-async function* runAgentStream(
-  text: string,
-  sessionId: string,
-  signal: AbortSignal,
-): AsyncGenerator<StreamEvent> {
-  const res = await fetch('/api/chat/stream', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      message: text,
-      session_id: sessionId,
-      provider: 'openai',
-      model: 'gpt-4o-mini',
-    }),
-    signal,
-  });
-  if (!res.body) return;
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    // SSE 事件以 \n\n 分隔；每个事件由多行组成（event: ...\ndata: ...）。
-    const events = buffer.split('\n\n');
-    buffer = events.pop() ?? '';
-    for (const evBlock of events) {
-      const dataLines: string[] = [];
-      for (const ln of evBlock.split('\n')) {
-        const trimmed = ln.trim();
-        if (trimmed.startsWith('data:')) {
-          const payload = trimmed.slice(5).trim();
-          if (payload && payload !== '[DONE]') dataLines.push(payload);
-        }
-      }
-      if (dataLines.length === 0) continue;
-      try {
-        // 后端 run_stream 单事件一个 JSON 串
-        const parsed = JSON.parse(dataLines.join('\n')) as StreamEvent;
-        yield parsed;
-      } catch {
-        /* skip malformed */
-      }
-    }
-  }
-}
 
 function streamToChatModelResult(opts: ChatModelRunOptions) {
   const { messages, abortSignal } = opts;
@@ -132,41 +158,66 @@ function streamToChatModelResult(opts: ChatModelRunOptions) {
       }
     >();
 
+    // ----------------------------------------------------------
+    // assistant-ui 的 LocalRuntime 把每次 yield 视为「整条消息的完整快照」：
+    // local-thread-runtime-core 的 updateMessage 是 initialContent + 本次 content，
+    // 不会把连续多次 yield 的 content 拼起来。所以这里必须自行累积 parts，
+    // 每个事件都 yield 全量快照，否则后一个事件会把前一个 part 覆盖掉。
+    // ----------------------------------------------------------
+    const parts: AgentPart[] = [];
+    const snapshot = (): ChatModelRunResult =>
+      ({ content: parts.map((p) => ({ ...p })) }) as unknown as ChatModelRunResult;
+
+    let activeText: AgentTextPart | null = null;
+    /** 追加文本；当前段不是 text part 时新开一段 */
+    const appendText = (t: string): void => {
+      if (activeText === null) {
+        const part: AgentTextPart = { type: 'text', text: t };
+        parts.push(part);
+        activeText = part;
+        return;
+      }
+      activeText.text += t;
+    };
+    /** 断开当前文本段，后续文本另起一段（避免拼进工具/思考块前后） */
+    const breakText = (): void => {
+      activeText = null;
+    };
+
+    let reasoningPart: AgentReasoningPart | null = null;
+    const toolPartById = new Map<string, AgentToolCallPart>();
+
     try {
-      for await (const ev of runAgentStream(text, sessionId, abortSignal)) {
+      for await (const sse of runAgentStream(text, sessionId, abortSignal)) {
+        const ev = toStreamEvent(sse);
         const dataStr = typeof ev.data === 'string' ? ev.data : undefined;
         const isText = ev.type === 'token' || ev.type === 'text';
 
         // ----------------------------------------------------------
-        // P1-1：thinking 折叠渲染 —— 升级为 assistant-ui 原生 ReasoningMessagePart
+        // P1-1：thinking 折叠渲染 —— assistant-ui 原生 ReasoningMessagePart
         //   - 后端 yield 多次 {"type":"thinking","data":"..."}（增量）
-        //   - 前端把增量拼到 thinkingBuffer.text
-        //   - 每收到一个 thinking 增量，立即 yield 一个 ReasoningMessagePart
-        //     （type="reasoning", text=当前完整文本），让 ThinkingBlock 实时打字机跟随
-        //   - partId 稳定：保证 runtime 把多次 yield 合并为同一 part
-        //   - 流结束再 yield 一次空字符串作为完成信号（ThinkingBlock 据此把 isStreaming=false）
+        //   - 前端把增量拼到 thinkingBuffer.text，同一个 part 原地更新
+        //   - 每次 yield 全量快照，ThinkingBlock 实时打字机跟随
         // ----------------------------------------------------------
         if (ev.type === 'thinking') {
           const inc = (ev.data ?? ev.content ?? '').toString();
           if (!inc) continue;
           thinkingBuffer.text += inc;
-          yield {
-            content: [
-              {
-                type: 'reasoning',
-                text: thinkingBuffer.text,
-                partId: thinkingBuffer.partId,
-              },
-            ],
-          } as unknown as ChatModelRunResult;
+          if (reasoningPart === null) {
+            reasoningPart = { type: 'reasoning', text: thinkingBuffer.text };
+            parts.push(reasoningPart);
+          } else {
+            reasoningPart.text = thinkingBuffer.text;
+          }
+          breakText();
+          yield snapshot();
           continue;
         }
 
-        // 流式 token / 普通文本
-        if (isText && ev.content) {
-          yield { content: [{ type: 'text', text: ev.content }] } as ChatModelRunResult;
-        } else if (isText && dataStr) {
-          yield { content: [{ type: 'text', text: dataStr }] } as ChatModelRunResult;
+        // 流式 token / 普通文本：累加到当前 text part
+        if (isText && (ev.content || dataStr)) {
+          appendText(ev.content ?? dataStr ?? '');
+          yield snapshot();
 
         // ----------------------------------------------------------
         // P0-2：tool_start —— 创建 tool-call part（带 args，result 留空 → 显示菊花）
@@ -178,27 +229,34 @@ function streamToChatModelResult(opts: ChatModelRunOptions) {
         ) {
           const tcId = ev.tool_call_id ?? uid();
           const tcName = ev.name ?? dataStr ?? 'tool';
-          const tcArgs = ev.args ?? {};
+          // tool_call（兼容事件）可能不带 args：沿用同 id 已登记的 args，
+          // 避免把 tool_start 的完整参数覆盖成 {}。
+          const tcArgs = ev.args ?? toolCallsById.get(tcId)?.args ?? {};
           toolCallsById.set(tcId, {
             name: tcName,
             args: tcArgs,
           });
-          yield {
-            content: [
-              {
-                type: 'tool-call',
-                toolCallId: tcId,
-                toolName: tcName,
-                args: tcArgs,
-                argsText: JSON.stringify(tcArgs),
-              },
-            ],
-          } as unknown as ChatModelRunResult;
+          const existing = toolPartById.get(tcId);
+          if (existing) {
+            existing.toolName = tcName;
+            existing.args = tcArgs;
+            existing.argsText = JSON.stringify(tcArgs);
+          } else {
+            const part: AgentToolCallPart = {
+              type: 'tool-call',
+              toolCallId: tcId,
+              toolName: tcName,
+              args: tcArgs,
+              argsText: JSON.stringify(tcArgs),
+            };
+            parts.push(part);
+            toolPartById.set(tcId, part);
+          }
+          breakText();
+          yield snapshot();
 
         // ----------------------------------------------------------
-        // P0-2：tool_result —— 把 result 注入到对应 tool-call part
-        //   - assistant-ui 不支持按 id 修改既有 part，所以 yield 一个新的
-        //     tool-call part（带 result），runtime 会按 toolCallId 合并到原卡片。
+        // P0-2：tool_result —— 把 result 注入到对应 tool-call part（原地更新）
         // ----------------------------------------------------------
         } else if (ev.type === 'tool_result' && ev.tool_call_id) {
           const tcId = ev.tool_call_id;
@@ -206,28 +264,34 @@ function streamToChatModelResult(opts: ChatModelRunOptions) {
             name: ev.name ?? 'tool',
             args: {},
           };
+          const result = ev.result ?? dataStr ?? '';
           toolCallsById.set(tcId, {
             ...prev,
             name: ev.name ?? prev.name,
-            result: ev.result ?? dataStr ?? '',
+            result,
             durationMs: ev.duration_ms ?? prev.durationMs,
           });
-          yield {
-            content: [
-              {
-                type: 'tool-call',
-                toolCallId: tcId,
-                toolName: prev.name,
-                args: prev.args,
-                argsText: JSON.stringify(prev.args),
-                result: ev.result ?? dataStr ?? '',
-              },
-            ],
-          } as unknown as ChatModelRunResult;
+          const existing = toolPartById.get(tcId);
+          if (existing) {
+            existing.result = result;
+          } else {
+            const part: AgentToolCallPart = {
+              type: 'tool-call',
+              toolCallId: tcId,
+              toolName: prev.name,
+              args: prev.args,
+              argsText: JSON.stringify(prev.args),
+              result,
+            };
+            parts.push(part);
+            toolPartById.set(tcId, part);
+          }
+          breakText();
+          yield snapshot();
 
         // ----------------------------------------------------------
-        // P0-2：tool_end —— 在消息流里 yield 一条简短文本（"✅ toolname 完成 (xx ms)"），
-        // 同时把状态写回 store；不重复 yield tool-call part（tool_result 已足够）。
+        // P0-2：tool_end —— 在消息流里追加一条简短文本（"✅ toolname 完成 (xx ms)"），
+        // 同时把状态写回内存表；不重复创建 tool-call part（tool_result 已足够）。
         // ----------------------------------------------------------
         } else if (ev.type === 'tool_end' && ev.tool_call_id) {
           const tcId = ev.tool_call_id;
@@ -242,22 +306,15 @@ function streamToChatModelResult(opts: ChatModelRunOptions) {
           const name = ev.name ?? prev?.name ?? 'tool';
           const ms = ev.duration_ms ?? prev?.durationMs;
           const durLabel = typeof ms === 'number' ? ` (${Math.round(ms)} ms)` : '';
-          yield {
-            content: [
-              {
-                type: 'text',
-                text: `\n\n> ✅ \`${name}\` 完成${durLabel}\n`,
-              },
-            ],
-          } as ChatModelRunResult;
+          appendText(`\n\n> ✅ \`${name}\` 完成${durLabel}\n`);
+          breakText();
+          yield snapshot();
 
         } else if (ev.type === 'error') {
           // 兜底显示错误文本，确保用户能看到 agent 失败原因
-          yield {
-            content: [
-              { type: 'text', text: `\n\n> ⚠️ ${dataStr ?? ev.error ?? 'unknown error'}` },
-            ],
-          } as ChatModelRunResult;
+          appendText(`\n\n> ⚠️ ${dataStr ?? ev.error ?? 'unknown error'}`);
+          breakText();
+          yield snapshot();
         } else if (ev.type === 'approval_required') {
           // v2.2.1 — HITL 拦截：把审批事件登记到 chatStore，并在流里插入提示文本
           // 后端会暂停状态图，等待用户在前端点击「允许」/「拒绝」
@@ -276,21 +333,18 @@ function streamToChatModelResult(opts: ChatModelRunOptions) {
                 reason,
               });
             }
-            // 同时在消息流里 yield 提示文本，让用户看到
-            yield {
-              content: [
-                {
-                  type: 'text',
-                  text: `\n\n> ⚠️ **高风险工具需要确认**：\`${tName}\`\n> ${reason || '请在右侧审批面板中允许或拒绝。'}\n`,
-                },
-              ],
-            } as ChatModelRunResult;
+            // 同时在消息流里追加提示文本，让用户看到
+            appendText(
+              `\n\n> ⚠️ **高风险工具需要确认**：\`${tName}\`\n> ${reason || '请在右侧审批面板中允许或拒绝。'}\n`,
+            );
+            breakText();
+            yield snapshot();
           } catch {
             /* HITL 登记失败不影响流 */
           }
         } else if (ev.type === 'approval_timeout') {
           // v2.2.1 — 超时自动拒绝：把对应卡片标记为 rejected (timed_out=true)，
-          // 并 yield 提示文本告诉用户"系统自动取消了"
+          // 并追加提示文本告诉用户"系统自动取消了"
           try {
             const reqId = (ev as { request_id?: string }).request_id;
             const reason = (ev as { reason?: string }).reason ?? 'Approval request timed out';
@@ -302,21 +356,16 @@ function streamToChatModelResult(opts: ChatModelRunOptions) {
                 reason,
               );
             }
-            yield {
-              content: [
-                {
-                  type: 'text',
-                  text: `\n\n> ⏰ **审批超时已自动取消**：${reason}\n`,
-                },
-              ],
-            } as ChatModelRunResult;
+            appendText(`\n\n> ⏰ **审批超时已自动取消**：${reason}\n`);
+            breakText();
+            yield snapshot();
           } catch {
             /* 忽略超时处理失败 */
           }
         } else if (ev.type === 'agent_switch') {
           // v2.2.3 — Multi-Agent Supervisor 切换 Worker：
           //   1) 写入 chatStore.agentEvents（用于 AgentExecutionGraph UI）
-          //   2) yield 一段紧凑的 markdown，让用户在消息流里也看到切换日志
+          //   2) 追加一段紧凑的 markdown，让用户在消息流里也看到切换日志
           try {
             const agentName = (ev as { agent?: string }).agent ?? dataStr ?? '';
             const reason = (ev as { reason?: string }).reason ?? '';
@@ -329,14 +378,11 @@ function streamToChatModelResult(opts: ChatModelRunOptions) {
                 reason: reason || undefined,
                 ...(reqId ? { requestId: reqId } : {}),
               });
-              yield {
-                content: [
-                  {
-                    type: 'text',
-                    text: `\n\n> 🔀 **Agent 切换** → \`${agentName}\`${reason ? `\n> ${reason}` : ''}\n`,
-                  },
-                ],
-              } as ChatModelRunResult;
+              appendText(
+                `\n\n> 🔀 **Agent 切换** → \`${agentName}\`${reason ? `\n> ${reason}` : ''}\n`,
+              );
+              breakText();
+              yield snapshot();
             }
           } catch {
             /* 静默忽略 agent_switch 处理失败（UI 仍可继续） */
@@ -359,33 +405,25 @@ function streamToChatModelResult(opts: ChatModelRunOptions) {
           const delayMs = (ev as { delayMs?: number }).delayMs ?? 0;
           const reason = (ev as { reason?: string }).reason ?? '';
           const secs = Math.max(1, Math.round(delayMs / 1000));
-          yield {
-            content: [
-              {
-                type: 'text',
-                text: `\n\n> 🔁 **网络不稳定，正在自动重试**（第 ${attempt} 次 / 等待 ${secs}s）${reason ? `\n> 原因：${reason}` : ''}\n`,
-              },
-            ],
-          } as ChatModelRunResult;
+          appendText(
+            `\n\n> 🔁 **网络不稳定，正在自动重试**（第 ${attempt} 次 / 等待 ${secs}s）${reason ? `\n> 原因：${reason}` : ''}\n`,
+          );
+          breakText();
+          yield snapshot();
         } else if (ev.type === '__retry_failed') {
           // P1-2 — 重试次数耗尽，最终失败
           const attempts = (ev as { attempts?: number }).attempts ?? 0;
           const finalErr = (ev as { finalError?: string }).finalError ?? 'unknown';
-          yield {
-            content: [
-              {
-                type: 'text',
-                text: `\n\n> ❌ **已重试 ${attempts} 次仍失败**：${finalErr}\n> 请稍后再试，或检查网络 / API Key 配置。\n`,
-              },
-            ],
-          } as ChatModelRunResult;
+          appendText(
+            `\n\n> ❌ **已重试 ${attempts} 次仍失败**：${finalErr}\n> 请稍后再试，或检查网络 / API Key 配置。\n`,
+          );
+          breakText();
+          yield snapshot();
         }
       }
 
       // ----------------------------------------------------------
       // P1-1：流结束 → ThinkingBlock 收到 isStreaming=false，自动收起
-      // 这里不再额外 yield text part。thinking 内容已通过 ReasoningMessagePart
-      // 实时推流并合并到 partId；runtime 会自然把状态切到 complete。
       // ----------------------------------------------------------
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -393,7 +431,9 @@ function streamToChatModelResult(opts: ChatModelRunOptions) {
         // 用户取消：安静退出
         return;
       }
-      yield { content: [{ type: 'text', text: `> ⚠️ 请求失败：${msg}` }] } as ChatModelRunResult;
+      appendText(`> ⚠️ 请求失败：${msg}`);
+      breakText();
+      yield snapshot();
     }
   }
 
