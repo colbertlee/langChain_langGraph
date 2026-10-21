@@ -9,18 +9,34 @@ sse-starlette~=2.4.1
 python-multipart~=0.0.9       # app.py 的 UploadFile/File(...) 路由在导入期强依赖
 
 # ─────────────── LangChain / LangGraph ───────────────
-langchain~=0.2.0
-langchain-openai~=0.1.0
-langchain-chroma~=0.1.0
-langchain-text-splitters~=0.2.0
-langchain-community~=0.2.0
-chromadb~=0.4.0
+# 2026-10-20 R1（证据：agent.py L24 模块级 from langchain.agents import create_agent
+# 是 langchain 1.x API，0.2.17 实测 ImportError；版本组合经 PyPI JSON API 实测：
+# langchain 1.4.6 要求 core>=1.6.10 + langgraph>=1.2.12,<1.3；
+# langchain-openai 1.7.2 / community 0.4.2 / chroma 1.1.0 / text-splitters 1.1.3
+# 均满足 core>=1.4.0 线，彼此兼容）
+langchain~=1.4.0
+langchain-openai~=1.7.0
+langchain-chroma~=1.1.0
+langchain-text-splitters~=1.1.0
+langchain-community~=0.4.0
+# langgraph 由 langchain~=1.4.0 传递依赖（>=1.2.12,<1.3），不单独钉版。
+# 2026-10-20 R1 新增：agent.py L26 模块级 from langgraph.checkpoint.sqlite import
+# SqliteSaver —— 该包是独立的 langgraph-checkpoint-sqlite，此前未在任何依赖清单
+# 声明（CI 报 ImportError 被 create_agent 错误掩盖）。3.1.2 要求
+# langgraph-checkpoint>=4.3，与 langgraph 1.2.16 的传递依赖一致（PyPI 实测）。
+langgraph-checkpoint-sqlite~=3.1.0
+# 2026-10-20 R1：0.4.0 → 1.5.0。langchain-chroma 兼容 core 1.x 的最低版 0.2.6
+# 即要求 chromadb>=1.0.20，1.1.0 要求 >=1.3.5,<2 —— 无 0.4.x 可行组合。
+# 代码影响面仅 vector_store.py L296 PersistentClient（1.x API 兼容）。
+# 经用户裁决同意（2026-10-20）。
+chromadb~=1.5.0
 sentence-transformers~=2.7.0   # Rerank (bge-reranker-base) 依赖
 
 # ─────────────── 数据科学 / 工具 ───────────────
 numpy~=1.26.0
 matplotlib~=3.7.0
-requests~=2.31.0
+requests~=2.32.0   # 2026-10-20 R1：2.31→2.32 线。langchain-community 0.4.x 要求
+                   # requests>=2.32.5（pip dry-run 实测 ResolutionImpossible，见本 PR 描述）
 httpx~=0.27.0
 
 # ─────────────── 第三方集成 ───────────────
@@ -47,4 +63,9 @@ webrtcvad~=2.0.10               # audio_pipeline.py VAD
 PyYAML~=6.0.2                   # plugin_manager.py: `import yaml`
 opentelemetry-api~=1.27.0       # observability/
 prometheus-client~=0.21.0       # observability/prom_http_metrics.py
-duckduckgo-search~=6.1.7        # v21_tools/search_tool.py
+# 2026-10-20 R3：6.1.7 → 8.1.0 线。6.x 依赖 pyreqwest-impersonate（PyPI 实测
+# 仅 sdist、无任何 wheel），Docker 构建需 Rust 工具链（CI run 实测缺 Scrt1.o 失败）。
+# 8.1.1 依赖 primp>=0.15.0（有 cp310-abi3-manylinux wheel，无需 Rust），
+# 且保留 duckduckgo_search 导入名与 DDGS context-manager API，与
+# v21_tools/search_tool.py L28/L50-51 用法兼容。
+duckduckgo-search~=8.1.0

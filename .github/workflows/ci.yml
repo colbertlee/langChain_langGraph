@@ -69,6 +69,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install -e ".[dev]"
+          # 2026-10-20 R2：requirements-dev.txt 含 respx/pandas/akshare/pytest-timeout，
+          # 不在 pyproject [dev] extra 里；tests/test_akshare_respx.py 等用例级 import
+          # respx，此前 CI 报 NameError: name 'respx' is not defined（run 39442622936 实测）。
+          pip install -r requirements-dev.txt
 
       - name: Run pytest with coverage gate
         working-directory: ai_agent
