@@ -26,16 +26,19 @@ def reset_registry():
 class TestFileTools:
     """测试 handle_read_file / handle_write_file / handle_list_directory"""
 
-    def test_read_file_success(self, tmp_path):
-        f = tmp_path / "test.txt"
-        f.write_text("hello world", encoding="utf-8")
-        result = mcp_tools.handle_read_file({"path": str(f)})
+    # 注：mcp_tools 的路径守卫拒绝以 "/" 开头的绝对路径（见 mcp_tools.py L23/L46/L61）。
+    # tmp_path 在 Linux CI 上是绝对路径（/tmp/pytest-…）会被守卫拦截，
+    # 而 Windows 本地是 C:\… 不触发 —— 故用例统一 chdir 后传相对路径，跨平台一致。
+    def test_read_file_success(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "test.txt").write_text("hello world", encoding="utf-8")
+        result = mcp_tools.handle_read_file({"path": "test.txt"})
         assert result == "hello world"
 
-    def test_read_file_truncation(self, tmp_path):
-        f = tmp_path / "big.txt"
-        f.write_text("x" * 6000, encoding="utf-8")
-        result = mcp_tools.handle_read_file({"path": str(f)})
+    def test_read_file_truncation(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "big.txt").write_text("x" * 6000, encoding="utf-8")
+        result = mcp_tools.handle_read_file({"path": "big.txt"})
         assert "... (truncated)" in result
         assert len(result) <= 5050
 
@@ -55,9 +58,10 @@ class TestFileTools:
         result = mcp_tools.handle_read_file({"path": "/etc/passwd"})
         assert "Access denied" in result
 
-    def test_write_file_success(self, tmp_path):
+    def test_write_file_success(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
         f = tmp_path / "out.txt"
-        result = mcp_tools.handle_write_file({"path": str(f), "content": "hi"})
+        result = mcp_tools.handle_write_file({"path": "out.txt", "content": "hi"})
         assert "Success" in result
         assert f.read_text(encoding="utf-8") == "hi"
 
@@ -74,10 +78,11 @@ class TestFileTools:
         result = mcp_tools.handle_write_file({"path": str(tmp_path), "content": "x"})
         assert "Error" in result
 
-    def test_list_directory_success(self, tmp_path):
+    def test_list_directory_success(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
         (tmp_path / "a.txt").write_text("x", encoding="utf-8")
         (tmp_path / "b").mkdir()
-        result = mcp_tools.handle_list_directory({"path": str(tmp_path)})
+        result = mcp_tools.handle_list_directory({"path": "."})
         assert "[FILE] a.txt" in result
         assert "[DIR]  b" in result
 
