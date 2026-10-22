@@ -95,6 +95,8 @@ export function serializeSseEvent(ev: ScriptEvent): string {
   if ('retryable' in ev)
     obj.retryable = (ev as { retryable?: boolean }).retryable;
   if ('phase' in ev) obj.phase = (ev as { phase?: string }).phase;
+  if ('request_id' in ev)
+    obj.request_id = (ev as { request_id?: string }).request_id;
   if ('tool_name' in ev)
     obj.tool_name = (ev as { tool_name?: string }).tool_name;
   if ('tool_args' in ev)
@@ -133,10 +135,114 @@ export async function installMockSseRoutes(
     resumeScripts?: Record<string, ScriptEvent[]>;
     onApprove?: (rid: string) => ScriptEvent[];
     onReject?: (rid: string) => ScriptEvent[];
+    /**
+     * 每个 SSE 事件之间的间隔（ms），默认 0。
+     * route.fulfill 只能一次性返回完整 body，前端会在同一批微任务里读完，
+     * 因此「工具运行中」这类瞬时态无法被观察到；需要观测中间态的用例
+     * 传入 > 0 的值，走页内 fetch 拦截 + ReadableStream 分帧推流。
+     */
+    eventDelayMs?: number;
   } = {},
 ): Promise<void> {
   let streamIdx = 0;
   const streamScripts = options.streamScripts ?? [];
+  const eventDelayMs = options.eventDelayMs ?? 0;
+
+  if (eventDelayMs > 0) {
+    const defaultResumeBody = [
+      { type: 'start' as const },
+      { type: 'chunk' as const, data: '续生成内容' },
+      { type: 'complete' as const, data: '续生成内容' },
+      { type: 'end' as const },
+    ].map(serializeSseEvent);
+    await page.addInitScript(
+      (payload: {
+        streamBodies: string[][];
+        resumeBodies: Record<string, string[]>;
+        defaultResumeBody: string[];
+        eventDelayMs: number;
+      }) => {
+        const originalFetch = window.fetch.bind(window);
+        const sleep = (ms: number) =>
+          new Promise<void>((resolve) => setTimeout(resolve, ms));
+        let idx = 0;
+
+        const sseResponse = (events: string[]): Response => {
+          const encoder = new TextEncoder();
+          const body = new ReadableStream<Uint8Array>({
+            async start(controller) {
+              try {
+                for (const evt of events) {
+                  await sleep(payload.eventDelayMs);
+                  controller.enqueue(encoder.encode(evt));
+                }
+                controller.close();
+              } catch {
+                /* 流被取消（页面卸载 / abort）时忽略 */
+              }
+            },
+          });
+          return new Response(body, {
+            status: 200,
+            headers: {
+              'Content-Type': 'text/event-stream',
+              'Cache-Control': 'no-cache',
+            },
+          });
+        };
+
+        window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url =
+            typeof input === 'string'
+              ? input
+              : input instanceof URL
+                ? input.toString()
+                : input.url;
+          if (url.includes('/api/chat/stream')) {
+            const picked =
+              payload.streamBodies[
+                Math.min(idx, payload.streamBodies.length - 1)
+              ] ??
+              payload.streamBodies[0] ??
+              [];
+            idx += 1;
+            return sseResponse(picked);
+          }
+          const resume = url.match(/\/api\/chat\/([^/]+)\/resume/);
+          if (resume) {
+            const rid = decodeURIComponent(resume[1]);
+            return sseResponse(payload.resumeBodies[rid] ?? payload.defaultResumeBody);
+          }
+          return originalFetch(input, init);
+        };
+      },
+      {
+        streamBodies: streamScripts.map((s) => s.map(serializeSseEvent)),
+        resumeBodies: Object.fromEntries(
+          Object.entries(options.resumeScripts ?? {}).map(([rid, s]) => [
+            rid,
+            s.map(serializeSseEvent),
+          ]),
+        ),
+        defaultResumeBody,
+        eventDelayMs,
+      },
+    );
+  }
+
+  // 兜底路由必须先注册：Playwright 后注册的路由优先匹配，
+  // 若把 catch-all 放在最后会把下面所有具体 handler 全部吃掉。
+  await page.route('**/api/**', async (route) => {
+    if (route.request().method() === 'OPTIONS') {
+      await route.fulfill({ status: 204, body: '' });
+      return;
+    }
+    await route.fulfill({
+      status: 404,
+      contentType: 'application/json',
+      body: JSON.stringify({ detail: 'mock-not-found' }),
+    });
+  });
 
   await page.route('**/api/chat/stream', async (route: Route, req: Request) => {
     const script =
@@ -156,7 +262,9 @@ export async function installMockSseRoutes(
     });
   });
 
-  await page.route('**/api/chat/*/resume', async (route: Route) => {
+  // 用正则而非 glob：resume 请求带 ?session_id= 查询串，glob `**/api/chat/*/resume`
+  // 匹配不到（`*` 不跨 `?`），会被兜底路由以 404 吃掉。
+  await page.route(/\/api\/chat\/[^/]+\/resume/, async (route: Route) => {
     const url = route.request().url();
     const m = url.match(/\/api\/chat\/([^/]+)\/resume/);
     const rid = m?.[1] ?? 'unknown';
@@ -247,18 +355,29 @@ export async function installMockSseRoutes(
     });
   });
 
-  // 其余未知 API：返回 404，避免 Vite 抛错
-  await page.route('**/api/**', async (route) => {
-    if (route.request().method() === 'OPTIONS') {
-      await route.fulfill({ status: 204, body: '' });
-      return;
-    }
+  // Tools 页（/admin?tab=tools）实际是「模型配置 & 切换」，数据源是 /api/models
+  await page.route('**/api/models', async (route) => {
     await route.fulfill({
-      status: 404,
+      status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ detail: 'mock-not-found' }),
+      body: JSON.stringify({
+        providers: [
+          {
+            id: 'mock_provider',
+            label: 'Mock Provider',
+            group: 'global',
+            desc: 'E2E mock provider',
+            configured: true,
+            models: ['mock-model-1'],
+          },
+        ],
+        models_by_provider: { mock_provider: ['mock-model-1'] },
+        current_provider: 'mock_provider',
+        current_model: 'mock-model-1',
+      }),
     });
   });
+
 }
 
 /**

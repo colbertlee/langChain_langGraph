@@ -136,15 +136,11 @@ const AssistantMessage: FC = () => {
         <div className="rounded-[12px] px-4 py-3 border bg-[var(--bg-1)] border-[var(--border)] shadow-glass">
           <div className="prose-md">
             <MessagePrimitive.Parts
-              // assistant-ui 0.14 标准 StandardComponents 类型只含 Text/Image/InProgress/Messages，
-              // ToolFallback / Reasoning 是运行时识别的扩展 slot，需断言成 any 绕过。
-              components={
-                {
-                  Text: MarkdownText,
-                  ToolFallback: ToolCallCard,
-                  Reasoning: ThinkingBlock,
-                } as any
-              }
+              components={{
+                Text: MarkdownText,
+                Reasoning: ThinkingBlock,
+                tools: { Fallback: ToolCallCard },
+              }}
             />
           </div>
         </div>

@@ -27,6 +27,8 @@ async function gotoChat(page: Page) {
 test.describe('Chat 流对话（P0 / P1 协议端到端）', () => {
   test('发送消息 → 工具卡片显示 args + result（菊花消失）', async ({ page }) => {
     await installMockSseRoutes(page, {
+      // tool_start 与 tool_result 之间需要时间窗，否则「运行中」瞬时态无法被断言捕获
+      eventDelayMs: 400,
       streamScripts: [
         [
           { type: 'start' },
@@ -321,17 +323,19 @@ test.describe('Chat 流对话 — 边缘场景', () => {
     await expect(page.getByText(/重试成功/)).not.toBeVisible({ timeout: 2_000 });
   });
 
-  test('Tools 页能列出 mock 工具', async ({ page }) => {
+  test('Tools 页展示模型配置（数据源 /api/models）', async ({ page }) => {
     await installMockSseRoutes(page, {
       streamScripts: [[{ type: 'start' }, { type: 'end' }]],
     });
     await page.goto('/');
-    // 找到 Tools 链接
+    // 找到 Tools 链接（/tools → /admin?tab=tools）
     await page.getByRole('link', { name: 'Tools', exact: true }).first().click();
     await expect(page).toHaveURL(/\/admin\?tab=tools/);
-    // 等待 mock 列表加载
-    await expect(page.getByText(/run_code/).first()).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText(/file_ops/).first()).toBeVisible();
-    await expect(page.getByText(/knowledge_search/).first()).toBeVisible();
+    // 该页实际是「模型配置 & 切换」，只请求 /api/models
+    await expect(page.getByText(/模型配置\s*&\s*切换/).first()).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.getByText('Mock Provider').first()).toBeVisible();
+    await expect(page.getByText('mock-model-1').first()).toBeVisible();
   });
 });
